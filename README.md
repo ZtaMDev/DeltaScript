@@ -176,6 +176,24 @@ Highlights:
   else { spec.log("Default") }
   ```
 
+- Interfaces (custom types):
+  ```
+  interface Person {
+    name::str;
+    age::num;
+    tags::arr<str>;
+    meta::obj;
+  }
+
+  func processPerson(p::Person) {
+    spec.log("Procesando:", p.name)
+    return p.name
+  }
+
+  let person::Person = { name: "Luisa", age: 21, tags: ["dev","student"], meta: {} }
+  processPerson(person)
+  ```
+
 ## SpectralLogs integration
 
 DeltaScript provides optional SpectralLogs integration in three modes:
