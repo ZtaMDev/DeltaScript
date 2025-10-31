@@ -48,7 +48,7 @@ class Counter {
   }
 }
 
-const c = new Counter(2);
+const c::Counter = new Counter(2);
 c.inc();
 c.add(5);
 spec.log("Counter:", c.count);
