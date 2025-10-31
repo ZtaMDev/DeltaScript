@@ -2,18 +2,21 @@
 <p align="center">
   <img src="./logo.png" alt="DeltaScript Logo" width="160" />
 </p>
-
-<p align="center"><strong>DeltaScript (ds)</strong> — a modern, pragmatic typed superset that compiles to JavaScript, with a clean CLI and first‑class developer UX.</p>
 <p align="center">
-  VS Code Extension:
-  <a href="https://marketplace.visualstudio.com/items?itemName=ZtaMDev.deltascript-vscode">Marketplace</a>
-  ·
-  <a href="https://open-vsx.org/extension/ztamdev/deltascript-vscode">Open VSX</a>
-  </p>
+  <em>A modern, pragmatic typed superset that compiles to JavaScript — with a clean CLI and first-class developer UX.</em>
+</p>
 
-<p align="center"><a href="./docs/index.md">Read the full documentation →</a></p>
+<p align="center">
+  <strong>VS Code Extension:</strong><br>
+  <a href="https://marketplace.visualstudio.com/items?itemName=ZtaMDev.deltascript-vscode">Visual Studio Marketplace</a>
+  &nbsp;•&nbsp;
+  <a href="https://open-vsx.org/extension/ztamdev/deltascript-vscode">Open VSX Registry</a>
+</p>
 
----
+<p align="center">
+  <strong>Docs:</strong><br>
+  <a href="./docs/index.md"><strong>Read the full documentation →</strong></a>
+</p>
 
 ## Overview
 
