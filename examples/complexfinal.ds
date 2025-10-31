@@ -33,7 +33,6 @@ let tempName::str = "Temporal";
 let mixedNames::arr<str> = [tempName, "Fixed", "Static"];
 let tempObj::obj = { temp: true };
 let objList::arr<obj> = [tempObj, { permanent: true }, { mixed: maybe }];
-
 // ========== INTERFACES Y OBJETOS ==========
 let person1::Person = {
   name: "María",
