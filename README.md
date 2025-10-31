@@ -14,7 +14,7 @@
   </a>
   &nbsp;
   <a href="https://github.com/ZtaMDev/DeltaScript">
-    <img src="https://img.shields.io/github/license/ZtaMDev/DeltaScript?style=for-the-badge&color=blue" alt="License" />
+    <img src="https://github.com/ZtaMDev/DeltaScript/blob/CrystalMain/LICENSE?style=for-the-badge&color=blue" alt="License" />
   </a>
 </p>
 
