@@ -1,0 +1,98 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "DeltaScript",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#annotations" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.deltascript",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.deltascript",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.deltascript",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "include": "#string_escapes" }]
+        },
+        {
+          "name": "string.quoted.single.deltascript",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "include": "#string_escapes" }]
+        },
+        {
+          "name": "string.template.deltascript",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            { "name": "constant.character.escape.deltascript", "match": "\\\\.`" },
+            { "name": "expression.embedded.deltascript", "begin": "\\$\\{", "end": "\\}" }
+          ]
+        }
+      ]
+    },
+    "string_escapes": {
+      "patterns": [
+        { "name": "constant.character.escape.deltascript", "match": "\\\\[\\\\\"'nrvtbf]" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.decimal.deltascript", "match": "\\b(0|[1-9][0-9]*)(\\.[0-9]+)?\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.deltascript",
+          "match": "\\b(if|else|for|while|try|catch|finally|return|new|throw|class|interface|extends|implements|inmut|call)\\b"
+        },
+        { "name": "storage.type.deltascript", "match": "\\b(func|let|const)\\b" }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        { "name": "punctuation.separator.type.deltascript", "match": "::" },
+        { "name": "punctuation.definition.generic.deltascript", "match": "[<>]" },
+        { "name": "constant.language.maybe.deltascript", "match": "\\bmaybe\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "support.type.primitive.deltascript", "match": "\\b(num|str|mbool|obj|arr)\\b" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.deltascript", "match": "[=+\\-*/!<>]=?|&&|\\|\\|" },
+        { "name": "punctuation.separator.deltascript", "match": "[;:,\\.]" },
+        { "name": "punctuation.bracket.deltascript", "match": "[(){}\\[\\]]" }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        { "name": "variable.other.readwrite.deltascript", "match": "[A-Za-z_][A-Za-z0-9_]*" }
+      ]
+    }
+  },
+  "scopeName": "source.deltascript"
+}
