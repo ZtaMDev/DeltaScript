@@ -26,6 +26,7 @@
 </p>
 
 <p align="center">
+  <strong>Docs:</strong><br>
   <a href="./docs/index.md"><strong>Read the full documentation →</strong></a>
 </p>
 
