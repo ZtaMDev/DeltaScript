@@ -1,9 +1,21 @@
 <h1 align="center">DeltaScript</h1>
+
 <p align="center">
   <img src="./logo.png" alt="DeltaScript Logo" width="160" />
 </p>
+
 <p align="center">
   <em>A modern, pragmatic typed superset that compiles to JavaScript — with a clean CLI and first-class developer UX.</em>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/deltascript">
+    <img src="https://img.shields.io/npm/v/deltascript?color=%23CB3837&label=DeltaScript&logo=npm&logoColor=white&style=for-the-badge" alt="NPM Version" />
+  </a>
+  &nbsp;
+  <a href="https://github.com/ZtaMDev/DeltaScript">
+    <img src="https://img.shields.io/github/license/ZtaMDev/DeltaScript?style=for-the-badge&color=blue" alt="License" />
+  </a>
 </p>
 
 <p align="center">
@@ -14,7 +26,6 @@
 </p>
 
 <p align="center">
-  <strong>Docs:</strong><br>
   <a href="./docs/index.md"><strong>Read the full documentation →</strong></a>
 </p>
 
