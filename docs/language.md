@@ -67,20 +67,17 @@ c.add(5)
 ## Control Flow
 
 ```
-# for
 let i::num = 0
 for (i = 0; i < 3; i = i + 1) {
   spec.log("for i:", i)
 }
 
-# while
 let w::num = 0
 while (w < 2) {
   spec.log("while w:", w)
   w = w + 1
 }
 
-# conditionals
 let opt::str = "B"
 if (opt === "A") {
   spec.log("Option A")
