@@ -1,7 +1,7 @@
 import spec from 'spectrallogs'
 import specweb from 'spectrallogs/web'
 let number = 3;
-let mgbool = (Math.random() < 0.5);
+let bool = (Math.random() < 0.5);
 
 number = 2;
 /* inmut number */

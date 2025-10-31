@@ -6,11 +6,10 @@ This page summarizes DeltaScript's type system and key rules.
 
 - `num`: numeric values (integers and floats)
 - `str`: strings
-- `bool`: booleans
 
-## Maybe Type
+## Logical Type (Maybe)
 
-- `mbool`: a tri‑state logical type useful for indeterminate states. At runtime it maps to true/false but conveys intent in annotations.
+- `mbool`: a tri‑state logical type (true / false / maybe). At runtime `maybe` evaluates nondeterministically (50%) and annotations communicate intent.
 
 ## Arrays
 
@@ -22,6 +21,7 @@ Examples:
 let xs::arr = [1, "a", true]
 let ys::arr<num> = [1, 2, 3]
 let names::arr<str> = ["a", "b"]
+let switches::arr<mbool> = [true, false, maybe]
 ```
 
 ## Objects

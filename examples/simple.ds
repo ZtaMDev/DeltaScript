@@ -1,5 +1,5 @@
 let number::num = 3;
-let mgbool::mbool = maybe;
+let bool::mbool = maybe;
 
 number = 2;
 inmut number;

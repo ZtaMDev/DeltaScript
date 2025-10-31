@@ -12,8 +12,8 @@ DeltaScript is a typed superset that compiles to JavaScript (ESM). This guide hi
 
 Attach types with `::`.
 
-- Primitives: `num`, `str`, `bool`
-- Maybe (tri‑state): `mbool` → may be true/false (runtime coerces accordingly)
+- Primitives: `num`, `str`
+- Logical maybe: `mbool` → true/false/maybe (runtime may treat `maybe` as nondeterministic)
 - Arrays: `arr`, generic arrays: `arr<T>`
 - Objects: `obj`
 - Custom interfaces/classes: use their identifier
@@ -23,8 +23,8 @@ Examples:
 ```
 let n::num = 3
 let s::str = "hello"
-let ok::bool = true
-let flags::arr<bool> = [true, false]
+let maybeFlag::mbool = maybe
+let flags::arr<mbool> = [true, false, maybe]
 let bag::arr = [1, "a", true]  # untyped array
 let cfg::obj = { debug: true }
 ```

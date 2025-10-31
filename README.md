@@ -128,7 +128,7 @@ Highlights:
   ```
   let username::str = "Manuel"
   let score::num = 42
-  let flags::arr<bool> = [true, false]
+  let flags::arr<mbool> = [true, false, maybe]
   let obj::obj = { debug: true }
   ```
 
