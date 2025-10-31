@@ -4,6 +4,12 @@
 </p>
 
 <p align="center"><strong>DeltaScript (ds)</strong> — a modern, pragmatic typed superset that compiles to JavaScript, with a clean CLI and first‑class developer UX.</p>
+<p align="center">
+  VS Code Extension:
+  <a href="https://marketplace.visualstudio.com/items?itemName=ZtaMDev.deltascript-vscode">Marketplace</a>
+  ·
+  <a href="https://open-vsx.org/extension/ztamdev/deltascript-vscode">Open VSX</a>
+  </p>
 
 <p align="center"><a href="./docs/index.md">Read the full documentation →</a></p>
 

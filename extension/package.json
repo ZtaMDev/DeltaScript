@@ -3,11 +3,11 @@
   "displayName": "DeltaScript",
   "description": "DeltaScript language support: syntax highlighting, LSP diagnostics, and file icon for .ds files.",
   "version": "1.0.0",
-  "publisher": "ztamdev",
+  "publisher": "ZtaMDev",
   "icon": "logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ztamdev/deltascript-vscode.git"
+    "url": "https://github.com/ZtaMDev/deltascript.git"
   },
   "engines": {
     "vscode": "^1.84.0"
