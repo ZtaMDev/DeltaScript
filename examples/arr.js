@@ -5,7 +5,8 @@ let numbers = [1, 2, 3];
 let stringi = "fuckit"
 let strings = [stringi, "b", "c"]; 
 let objs = {}
-let objects = [objs, {}, {}]; 
+let objects = [objs, {}, {}];
+let mboools = [true, false, (Math.random() < 0.5)];
 let mixed = [1, "a", true];
 
 // Asignaciones válidas

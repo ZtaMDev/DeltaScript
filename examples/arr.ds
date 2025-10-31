@@ -3,7 +3,8 @@ let numbers::arr<num> = [1, 2, 3];
 let stringi::str = "fuckit"
 let strings::arr<str> = [stringi, "b", "c"]; 
 let objs::obj = {}
-let objects::arr<obj> = [objs, {}, {}]; 
+let objects::arr<obj> = [objs, {}, {}];
+let mboools::arr<mbool> = [true, false, maybe];
 let mixed::arr = [1, "a", true];
 
 // Asignaciones válidas
