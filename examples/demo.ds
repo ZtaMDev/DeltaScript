@@ -1,0 +1,8 @@
+let person::str = "Manuel";
+let age::num = 15;
+const age2::str = "This is an string";
+
+func Greet(person::str) {
+  spec.log("Hola " + person + "!");
+}
+call Greet(person);

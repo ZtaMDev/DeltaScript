@@ -1,0 +1,14 @@
+// Arrays tipados
+let numbers::arr<num> = [1, 2, 3];
+let stringi::str = "fuckit"
+let strings::arr<str> = [stringi, "b", "c"]; 
+let objs::obj = {}
+let objects::arr<obj> = [objs, {}, {}]; 
+let mixed::arr = [1, "a", true];
+
+// Asignaciones válidas
+numbers = [4, 5, 6];
+mixed = numbers;
+
+let comp::obj = { useIt: maybe }
+let mixted::arr = ["string",4, comp]

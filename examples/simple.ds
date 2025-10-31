@@ -1,0 +1,13 @@
+let number::num = 3;
+let mgbool::mbool = maybe;
+
+number = 2;
+inmut number;
+
+let array::arr[] = []
+func Main(x::num = 3) {
+    spec.log("types " + x)
+}
+
+let newer::num = 4;
+Main(newer)
