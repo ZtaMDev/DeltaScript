@@ -15,6 +15,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const cmd = args[0];
 
+// Version flag: -v / --version
+try {
+  if (args.includes("-v") || args.includes("--version") || cmd === "-v" || cmd === "--version") {
+    const pkgPath = path.join(__dirname, "..", "package.json");
+    let v = "";
+    try {
+      const pkgRaw = fs.readFileSync(pkgPath, "utf8");
+      const pkg = JSON.parse(pkgRaw);
+      v = String(pkg?.version || "");
+    } catch {}
+    console.log(v ? `DeltaScript v${v}` : "DeltaScript");
+    process.exit(0);
+  }
+} catch {}
+
 // Single-file fast path: dsc file.ds [args]
 let handled = false;
 if (cmd && cmd.endsWith(".ds") && fs.existsSync(cmd)) {
@@ -150,6 +165,7 @@ if (!handled) switch (cmd) {
     console.log("    --no-builtins          → disable auto imports and console tip (overrides config)");
     console.log("    --migrate-to-spec      → rewrite console.* calls to spec.* during compilation");
     console.log("    --spectral-cdn         → inject CDN imports (esm.sh) instead of node package imports");
+    console.log("    -v, --version          → print DeltaScript version");
     console.log("  dsc init                 → create base configuration (dsk.config.ds)");
     console.log("  dsc build                → compile all .ds files");
     console.log("  dsc dev                  → watch mode (development)");
