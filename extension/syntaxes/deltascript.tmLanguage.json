@@ -6,6 +6,7 @@
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#keywords" },
+    { "include": "#js_builtins" },
     { "include": "#types" },
     { "include": "#operators" },
     { "include": "#function_decl" },
@@ -67,7 +68,7 @@
       "patterns": [
         {
           "name": "keyword.control.deltascript",
-          "match": "\\b(if|else|for|while|try|catch|finally|return|new|throw|class|interface|extends|implements|inmut|mut|call|await|async|break|continue|switch|case|default)\\b"
+          "match": "\\b(if|else|for|while|try|catch|finally|return|new|throw|class|interface|extends|implements|inmut|mut|call|await|async|break|continue|switch|case|default|import|from|export)\\b"
         },
         { "name": "storage.type.deltascript", "match": "\\b(func|let|const)\\b" }
       ]
@@ -139,6 +140,13 @@
     "identifiers": {
       "patterns": [
         { "name": "variable.other.readwrite.deltascript", "match": "[A-Za-z_][A-Za-z0-9_]*" }
+      ]
+    }
+    ,
+    "js_builtins": {
+      "patterns": [
+        { "name": "support.function.builtin.deltascript", "match": "\\b(parseInt|parseFloat|isNaN|isFinite|decodeURI|decodeURIComponent|encodeURI|encodeURIComponent|setTimeout|setInterval|clearTimeout|clearInterval|queueMicrotask)\\b" },
+        { "name": "support.class.builtin.deltascript", "match": "\\b(Number|String|Boolean|Array|Object|Map|Set|WeakMap|WeakSet|Date|Math|JSON|RegExp|Promise|Symbol|BigInt|Error|TypeError|RangeError)\\b" }
       ]
     }
   },

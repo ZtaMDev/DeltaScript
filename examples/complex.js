@@ -84,4 +84,3 @@ try {
 
 // uso de interfaces (meta)
 let p = { name: "Luisa", age: 21, tags: ["dev","student"], meta: { verified: true } };
-

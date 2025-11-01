@@ -468,8 +468,24 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
             cleanedForParseLines.push(L);
             continue;
         }
-        // rewrite imports from .ds -> .js
-        L = L.replace(/from\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => `from ${q}${p}.js${q}`);
+        // rewrite imports/exports from .ds -> .js (static forms)
+        L = L.replace(/from\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return `from ${q}${spec}${q}`;
+        });
+        L = L.replace(/\bexport\s+[^;]*?\sfrom\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return _m.replace(`${p}.ds`, spec);
+        });
+        // bare import specifiers and dynamic import()
+        L = L.replace(/\bimport\s*\(\s*(['"])(.+?)\.ds\1\s*\)/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return `import(${q}${spec}${q})`;
+        });
+        L = L.replace(/\bimport\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return `import ${q}${spec}${q}`;
+        });
         // remove inline ::types (x::Type -> x)
         L = L.replace(/([A-Za-z_$][\w$]*)::([A-Za-z_$<>\[\]]+)/g, "$1");
         // maybe -> random boolean
@@ -491,13 +507,48 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
     }
     const cleanedForParse = cleanedForParseLines.join("\n");
     // --- 2) Quick parse to detect syntax errors early (interfaces already removed) ---
+    // Build a parsed->source line map by simulating interface stripping line-by-line
+    function buildParsedToSourceMap(src) {
+        const lines = src.split(/\r?\n/);
+        const map = [];
+        let inIface = false;
+        let depth = 0;
+        let parsedLine = 1;
+        for (let i = 0; i < lines.length; i++) {
+            const L = lines[i];
+            if (!inIface && /^\s*interface\s+[A-Za-z_$][\w$]*\s*\{/.test(L)) {
+                inIface = true;
+                depth = 1;
+            }
+            else if (inIface) {
+                for (let k = 0; k < L.length; k++) {
+                    const ch = L[k];
+                    if (ch === '{')
+                        depth++;
+                    else if (ch === '}') {
+                        depth--;
+                        if (depth === 0) {
+                            inIface = false;
+                        }
+                    }
+                }
+            }
+            else {
+                map[parsedLine - 1] = i + 1;
+                parsedLine++;
+            }
+        }
+        return map;
+    }
+    const parsedToSourceMap = buildParsedToSourceMap(sourceCode);
     try {
         acornParse(cleanedForParse, { ecmaVersion: "latest", sourceType: "module" });
     }
     catch (err) {
         const loc = err.loc ?? { line: 0, column: 0 };
         const lines = sourceCode.split(/\r?\n/);
-        const line = loc.line || 1;
+        const parsedLine = loc.line || 1;
+        const line = parsedToSourceMap[parsedLine - 1] || parsedLine;
         const start = Math.max(0, line - 3);
         const end = Math.min(lines.length, line + 2);
         const frame = lines.slice(start, end).map((ln, i) => {
@@ -506,7 +557,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
             return `${marker} ${chalk.gray(num.toString().padStart(4, ' '))} ${chalk.gray('|')} ${highlightJs(ln)}`;
         }).join("\n");
         console.error(`\n${c.error('Syntax error in source')} ${chalk.bold(filePath)}:${chalk.yellow(line)}:${chalk.yellow(loc.column)}\n${frame}\n`);
-        throw new CompileError(filePath, line, loc.column, `Syntax error: ${err.message}`);
+        throw new CompileError(filePath, line, loc.column, `Syntax error (mapped): ${err.message}`);
     }
     // --- 3) Semantic pass line-by-line on the ORIGINAL source (origLines) ---
     const outLines = [];
@@ -604,8 +655,27 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
         }
         // Transform maybe to (Math.random() < 0.5) in output
         L = L.replace(/\bmaybe\b/g, "(Math.random() < 0.5)");
-        // rewrite imports .ds -> .js in emitted code
-        L = L.replace(/from\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => `from ${q}${p}.js${q}`);
+        // Ensure function declarations are valid JS in emitted code
+        // Support both `func Name(` and `async func Name(`
+        L = L.replace(/\basync\s+func\s+([A-Za-z_$][\w$]*)\s*\(/g, "async function $1(");
+        L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(/g, "function $1(");
+        // rewrite imports/exports .ds -> .js in emitted code as well
+        L = L.replace(/from\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return `from ${q}${spec}${q}`;
+        });
+        L = L.replace(/\bexport\s+[^;]*?\sfrom\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return _m.replace(`${p}.ds`, spec);
+        });
+        L = L.replace(/\bimport\s*\(\s*(['"])(.+?)\.ds\1\s*\)/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return `import(${q}${spec}${q})`;
+        });
+        L = L.replace(/\bimport\s+(['"])(.+?)\.ds\1/g, (_m, q, p) => {
+            const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
+            return `import ${q}${spec}${q}`;
+        });
         // Remove trailing semicolon and comments for type inference
         const cleanExpr = (expr) => {
             return expr.replace(/\/\/.*$/, "").replace(/;+$/, "").trim();

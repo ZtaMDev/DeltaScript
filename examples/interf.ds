@@ -6,3 +6,7 @@ interface Person {
 }
 
 let p::Person = { name: "Luisa", age: 21, tags: ["dev","student"], meta: { verified: true } };
+
+async func main() {
+  spec.log(p);
+}

@@ -67,7 +67,7 @@ function registerClientlessFeatures(context) {
   const KEYWORDS = [
     'func','let','const','class','interface','inmut','mut','call',
     'if','else','for','while','try','catch','finally','return','new','throw','extends','implements',
-    'async','await','break','continue','switch','case','default'
+    'async','await','break','continue','switch','case','default','import','from','export'
   ];
   const TYPES = ['num','str','mbool','obj','arr'];
   const SPEC_METHODS = ['log','error','warn','info','debug','success','input'];

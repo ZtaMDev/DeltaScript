@@ -89,6 +89,7 @@ try {
   spec.log("This always runs");
 }
 
+
 // uso de interfaces en funciones
 function registerPerson(p) {
   spec.log("Registering:", p.name);

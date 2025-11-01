@@ -1,6 +1,6 @@
 {
   "name": "deltascript",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "DeltaScript (ds) - A modern typed superset that compiles to JavaScript",
   "main": "dist/cli.js",
   "bin": {

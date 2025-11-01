@@ -266,3 +266,22 @@ See [./examples](./examples) for complete samples, including:
 ## License
 
 MIT
+
+## VS Code Extension (recommended)
+
+For the best developer experience, install the official DeltaScript VS Code extension:
+
+- Marketplace: https://marketplace.visualstudio.com/items?itemName=ZtaMDev.deltascript-vscode
+- Open VSX: https://open-vsx.org/extension/ztamdev/deltascript-vscode
+
+What you get:
+
+- Syntax highlighting: keywords, types, function and member calls, constants (`maybe/true/false`), and `::Type` annotations.
+- Inline diagnostics backed by the DeltaScript transpiler:
+  - Syntax errors and DeltaScript type errors with red squiggles and entries in the Problems panel.
+  - Multiple diagnostics per file supported.
+- Smarter completions: keywords (including async/await), types and constants, `spec.*` helpers, in-scope identifiers, and snippets.
+- Hovers with code previews for symbol definitions and concise keyword/tooltips (mut, inmut, func, interface, spec.*).
+- Navigation: go to definition, document/workspace symbols, references, rename, and signature help.
+
+Tip: you can also search for “deltascript” directly inside VS Code.

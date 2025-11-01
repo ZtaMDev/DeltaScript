@@ -93,6 +93,7 @@ try {
   spec.log("This always runs");
 }
 
+
 // uso de interfaces en funciones
 func registerPerson(p::Person) {
   spec.log("Registering:", p.name);

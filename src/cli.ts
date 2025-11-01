@@ -142,8 +142,7 @@ if (!handled) switch (cmd) {
       console.log("\n" + c.error(`✖ Failed`), `${failed.length} file(s):`);
       for (const f of failed) {
         const rel = path.relative(process.cwd(), f.inPath);
-        const lc = (f.line != null && f.column != null) ? `:${f.line}:${f.column}` : '';
-        console.log("  ", c.gray("•"), rel + lc, "-", f.message);
+        console.log("  ", c.gray("•"), rel);
       }
       process.exitCode = 1;
     }
@@ -222,33 +221,50 @@ function runSingleFile(inFile: string, args: string[], flags: { noBuiltins?: boo
   const config: any = hasConfig ? loadConfig() : {};
   const src = fs.readFileSync(inFile, "utf8");
   try {
-    let js = transpileFileToString(src, inFile);
+    // Build a temporary workspace and transpile the entry and its .ds dependencies recursively
     let outJsPath: string;
     let tempDir: string | null = null;
-    // SpectralLogs integration in single-file run
+    const entryDir = path.dirname(inFile);
+    // Entry-level flags
     const builtinsCfg = (config as any)?.builtins !== false;
-    const builtins = flags.noBuiltins ? false : builtinsCfg;
-    const migrate = !!flags.migrateToSpec;
-    // Inject SpectralLogs (shim or CDN) and optional migration
-    if (builtins || migrate) {
-      js = injectSpectralImports(js, !!flags.spectralCdn, process.cwd());
+    const builtinsEntry = flags.noBuiltins ? false : builtinsCfg;
+    const migrateEntry = !!flags.migrateToSpec;
+    const graph = resolveDsDependencyGraph(inFile);
+    // Create temp dir
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "deltascript-run-"));
+    // Mark temp workspace as ESM to avoid Node warnings for .js with import/export
+    try {
+      fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify({ type: 'module' }), 'utf8');
+    } catch {}
+    // Transpile all .ds in graph into temp dir preserving relative structure to entryDir
+    for (const absPath of graph) {
+      const rel = path.relative(entryDir, absPath);
+      const outPath = path.join(tempDir, rel.replace(/\.ds$/, ".js"));
+      const code = fs.readFileSync(absPath, "utf8");
+      let jsFile = transpileSpark(code, absPath);
+      // Inject builtins into every module so spec is available cross-module
+      if (builtinsEntry || migrateEntry) {
+        jsFile = injectSpectralImports(jsFile, !!flags.spectralCdn, process.cwd());
+      }
+      // Only rewrite console->spec for entry file to avoid surprises
+      if (absPath === inFile && migrateEntry) jsFile = rewriteConsoleToSpec(jsFile);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, jsFile, "utf8");
     }
-    if (migrate) {
-      js = rewriteConsoleToSpec(js);
-    }
-    // Always run from a temporary .mjs to guarantee ESM and top-level await
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dawnscript-"));
-    outJsPath = path.join(tempDir, path.basename(inFile).replace(/\.ds$/, ".mjs"));
-    fs.writeFileSync(outJsPath, js, "utf8");
+    // Entry is executed as .mjs to allow top-level await; re-write extension for entry
+    const entryRel = path.relative(entryDir, inFile).replace(/\.ds$/, ".mjs");
+    outJsPath = path.join(tempDir, entryRel);
+    // Ensure .mjs exists by copying .js sibling
+    const entryJsPath = outJsPath.replace(/\.mjs$/, ".js");
+    try { fs.copyFileSync(entryJsPath, outJsPath); } catch {}
 
-    const child = spawn(process.execPath, [outJsPath, ...args], { stdio: "inherit" });
+    const child = spawn(process.execPath, [outJsPath, ...args], { stdio: "inherit", cwd: tempDir || process.cwd() });
 
     let exiting = false;
     const onExit = (code?: number | null) => {
       // Cleanup temp artifacts if used
       if (tempDir) {
-        try { fs.unlinkSync(outJsPath); } catch {}
-        try { fs.rmdirSync(tempDir); } catch {}
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       }
       process.exit(code ?? 0);
     };
@@ -268,7 +284,7 @@ function runSingleFile(inFile: string, args: string[], flags: { noBuiltins?: boo
     process.once("SIGINT", handleSigint);
     process.once("SIGTERM", handleSigint);
     const occ = countConsoleUsage(src);
-    if (builtins && !migrate && occ > 0) {
+    if (builtinsEntry && !migrateEntry && occ > 0) {
       if (!_devWarnShown) {
         _devWarnShown = true;
         const rel = path.relative(process.cwd(), inFile);
@@ -330,6 +346,31 @@ function hasConsoleUsage(src: string): boolean {
   return /\bconsole\.(log|error|warn|info|debug)\b/.test(src);
 }
 
+// Build a dependency graph of .ds files starting from entry
+function resolveDsDependencyGraph(entryAbs: string): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  const visit = (absPath: string) => {
+    const real = path.resolve(absPath);
+    if (seen.has(real)) return;
+    seen.add(real);
+    let content = '';
+    try { content = fs.readFileSync(real, 'utf8'); } catch { return; }
+    const dir = path.dirname(real);
+    // import ... from "...ds" | export ... from "...ds"
+    const re = /\b(?:import|export)\b[\s\S]*?\bfrom\b\s*['"]([^'"]+\.ds)['"]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+      const spec = m[1];
+      const child = path.resolve(dir, spec);
+      visit(child);
+    }
+    order.push(real);
+  };
+  visit(entryAbs);
+  return order;
+}
+
 function countConsoleUsage(src: string): number {
   const re = /\bconsole\.(log|error|warn|info|debug)\b/g;
   let m: RegExpExecArray | null;
@@ -372,8 +413,7 @@ function injectSpectralImports(js: string, useCdn = false, projectRoot: string =
     + `  };\n`
     + `  return { log: mk('log'), error: mk('error'), warn: mk('warn'), info: mk('info'), debug: mk('debug'), success: (...a) => console.log(...a), input };\n`
     + `})();`;
-  const shimWeb = `const specweb = {};`;
-  return `${shim}\n${shimWeb}\n${js}`;
+  return `${shim}\n${js}`;
 }
 
 // Rewrite console.* to spec.*

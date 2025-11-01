@@ -22,7 +22,6 @@ let tempName = "Temporal";
 let mixedNames = [tempName, "Fixed", "Static"];
 let tempObj = { temp: true };
 let objList = [tempObj, { permanent: true }, { mixed: (Math.random() < 0.5) }];
-
 // ========== INTERFACES Y OBJETOS ==========
 let person1 = {
   name: "María",

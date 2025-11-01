@@ -13,6 +13,71 @@ async function ensureTranspilerLoaded() {
     const esm = await import(pathToFileURL(path.join(__dirname, 'transpiler.js')).href);
     const mod = esm?.default && esm.default.transpileSpark ? esm.default : esm;
     if (mod?.transpileSpark) { transpile = mod; return transpile; }
+
+// Detect if the current position is inside a string literal that is part of an import/from statement
+function findImportStringAt(text, position) {
+  const lineStartOff = positionToOffset(text, { line: position.line, character: 0 });
+  const lineEndIdx = text.indexOf('\n', lineStartOff);
+  const lineText = text.slice(lineStartOff, lineEndIdx === -1 ? text.length : lineEndIdx);
+  const ch = position.character;
+  // Find quoted ranges in this line
+  const m = /(['"])\s*([^'"\n]+?)\s*\1/g;
+  let q;
+  while ((q = m.exec(lineText)) !== null) {
+    const start = q.index;
+    const end = m.lastIndex;
+    if (ch >= start && ch <= end) {
+      // ensure this line looks like import/from
+      if (/\b(import|from)\b/.test(lineText)) {
+        return { specifier: q[2] };
+      }
+    }
+  }
+  return null;
+}
+
+function resolveImportPath(baseFsPath, spec) {
+  try {
+    const baseDir = path.dirname(baseFsPath);
+    let s = spec;
+    if (!/^\.|\//.test(s) && !/^([A-Za-z]:\\|file:\/\/)/.test(s)) s = './' + s;
+    // prefer .ds then .js
+    const candDs = path.resolve(baseDir, s.endsWith('.ds') ? s : s + '.ds');
+    const candJs = path.resolve(baseDir, s.endsWith('.js') ? s : s + '.js');
+    if (fs.existsSync(candDs)) return { fsPath: candDs, display: candDs };
+    return { fsPath: candJs, display: candJs };
+  } catch { return { fsPath: spec, display: spec }; }
+}
+
+function buildTempSymbolIndex(text) {
+  const symbols = [];
+  const funcRe = /\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/g;
+  const classRe = /\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  const ifaceRe = /\binterface\s+([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  const toPos = (idx) => {
+    const pre = text.slice(0, idx);
+    const lines = pre.split(/\r?\n/);
+    return { line: lines.length - 1, character: lines[lines.length - 1].length };
+  };
+  let m;
+  while ((m = funcRe.exec(text)) !== null) symbols.push({ name: m[1], kind: SymbolKind.Function, range: { start: toPos(m.index), end: toPos(m.index + m[0].length) } });
+  while ((m = classRe.exec(text)) !== null) symbols.push({ name: m[1], kind: SymbolKind.Class, range: { start: toPos(m.index), end: toPos(m.index + m[0].length) } });
+  while ((m = ifaceRe.exec(text)) !== null) symbols.push({ name: m[1], kind: SymbolKind.Interface, range: { start: toPos(m.index), end: toPos(m.index + m[0].length) } });
+  return { symbols };
+}
+
+function collectImportedFiles(text, docUri) {
+  const res = [];
+  const baseFs = uriToFsPath(docUri);
+  const rx = /\bfrom\s+['"]([^'"\n]+)['"]|\bimport\s+['"]([^'"\n]+)['"]/g;
+  let m;
+  while ((m = rx.exec(text)) !== null) {
+    const spec = m[1] || m[2];
+    const resolved = resolveImportPath(baseFs, spec);
+    res.push(resolved);
+  }
+  return res;
+}
   } catch {}
   // 2) Installed package (CJS/ESM)
   try {
@@ -67,7 +132,15 @@ connection.onInitialize((params) => {
   } catch {}
   return {
     capabilities: {
-      textDocumentSync: documents.syncKind
+      textDocumentSync: documents.syncKind,
+      completionProvider: { resolveProvider: false, triggerCharacters: ['.', ':', '<'] },
+      hoverProvider: true,
+      definitionProvider: true,
+      documentSymbolProvider: true,
+      workspaceSymbolProvider: true,
+      referencesProvider: true,
+      renameProvider: true,
+      signatureHelpProvider: { triggerCharacters: ['(' , ','] }
     }
   };
 });
@@ -80,7 +153,7 @@ async function validateTextDocument(textDocument) {
   if (!tp || typeof tp.transpileSpark !== 'function') {
     return diagnostics; // no engine; avoid noisy diagnostics
   }
-  const offsetFn = buildInterfaceOffsetAdjuster(text);
+  const mapLine = buildInterfaceParsedToSourceMapper(text);
   try {
     // transpileSpark may either:
     // - return JS string, or
@@ -92,11 +165,23 @@ async function validateTextDocument(textDocument) {
       js = String(result.code || '');
       if (Array.isArray(result.diagnostics)) {
         for (const d of result.diagnostics) {
+          const msgStr0 = String(d?.message || '');
+          // Drop JS syntax errors reported by transpiler if output is ESM
+          if (/Emitted JS Syntax error/i.test(msgStr0) && /\b(import|export)\b/.test(js || '')) {
+            continue;
+          }
           const rawL = Math.max(1, Number(d?.line ?? 1));
-          const msgStr = String(d?.message || '');
-          const applyOffset = /syntax error/i.test(msgStr);
-          const l = Math.max(0, (applyOffset ? offsetFn(rawL) : rawL) - 1);
-          const c = Math.max(0, Number(d?.column ?? 1) - 1);
+          const msgStr = msgStr0;
+          const applyOffset = /syntax error/i.test(msgStr) && !/\(mapped\)/i.test(msgStr);
+          const mapped = applyOffset ? mapLine(rawL) : rawL;
+          const l = Math.max(0, mapped - 1);
+          let c = Math.max(0, Number(d?.column ?? 1) - 1);
+          if (applyOffset) {
+            try {
+              const srcLineText = text.split(/\r?\n/)[l] || '';
+              c = mapParsedColumnToSource(srcLineText, c);
+            } catch {}
+          }
           diagnostics.push({
             severity: DiagnosticSeverity.Error,
             range: { start: { line: l, character: c }, end: { line: l, character: c + 1 } },
@@ -109,7 +194,7 @@ async function validateTextDocument(textDocument) {
       js = result;
     }
     // Optional JS syntax check: skip for ESM or empty output to avoid false positives
-    if (js && js.trim() && !/\bimport\b|\bexport\b/.test(js)) {
+    if (js && js.trim() && !(/\bimport\b|\bexport\b/.test(js))) {
       try { new Function(js); } catch (e) {
         const msg = String(e?.message || 'Generated JS syntax error');
         diagnostics.push({
@@ -126,9 +211,23 @@ async function validateTextDocument(textDocument) {
     for (const e of list) {
       const rawL = Math.max(1, Number(e?.line ?? 1));
       const msgStr = String(e?.message || '');
-      const applyOffset = /syntax error/i.test(msgStr);
-      const line = Math.max(0, (applyOffset ? offsetFn(rawL) : rawL) - 1);
-      const column = Math.max(0, Number(e?.column ?? 1) - 1);
+      // Drop JS syntax errors reported by transpiler if the source is ESM-ish
+      if (/Emitted JS Syntax error/i.test(msgStr)) {
+        const src = textDocument.getText();
+        if (/\b(import|export)\b/.test(src)) {
+          continue;
+        }
+      }
+      const applyOffset = /syntax error/i.test(msgStr) && !/\(mapped\)/i.test(msgStr);
+      const mapped = applyOffset ? mapLine(rawL) : rawL;
+      const line = Math.max(0, mapped - 1);
+      let column = Math.max(0, Number(e?.column ?? 1) - 1);
+      if (applyOffset) {
+        try {
+          const srcLineText = text.split(/\r?\n/)[line] || '';
+          column = mapParsedColumnToSource(srcLineText, column);
+        } catch {}
+      }
       const message = String(e?.message || 'Syntax error');
       diagnostics.push({
         severity: DiagnosticSeverity.Error,
@@ -150,15 +249,16 @@ function buildInterfaceOffsetAdjuster(text) {
   while ((m = re.exec(text)) !== null) {
     const startIdx = m.index + (m[1] ? m[1].length : 0);
     const startLine = indexToLine(text, startIdx) + 1; // 1-based
-    // Find matching closing brace for this block
-    let i = startIdx;
+    // Find matching closing brace for this block (end at the '}' character)
+    let j = startIdx;
     let depth = 0;
-    for (; i < text.length; i++) {
-      const ch = text[i];
+    for (; j < text.length; j++) {
+      const ch = text[j];
       if (ch === '{') depth++;
-      else if (ch === '}') { depth--; if (depth === 0) { i++; break; } }
+      else if (ch === '}') { depth--; if (depth === 0) { break; } }
     }
-    const endLine = indexToLine(text, i) + 1; // line after '}'
+    const endLine = indexToLine(text, j) + 1; // line of the closing '}'
+    // Removed lines equal the number of lines occupied by the interface block
     const removed = Math.max(0, endLine - startLine + 1);
     if (removed > 0) blocks.push({ startLine, endLine, removed });
   }
@@ -171,6 +271,49 @@ function buildInterfaceOffsetAdjuster(text) {
       else break;
     }
     return line1Based + add;
+  };
+}
+
+// Build mapping from parsed (interfaces removed) line numbers -> original source line numbers
+function buildInterfaceParsedToSourceMapper(text) {
+  // 1) Find interface blocks exactly as transpiler removes (char indices)
+  const blocks = [];
+  const re = /(^|\n)\s*interface\s+[A-Za-z_$][\w$]*\s*\{/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const startIdx = m.index + (m[1] ? m[1].length : 0);
+    let i = startIdx;
+    let depth = 0;
+    for (; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { i++; break; } }
+    }
+    const endExclusive = i; // matches transpiler end+1
+    blocks.push([startIdx, endExclusive]);
+  }
+  // 2) Build keep mask and cleaned text
+  const keep = new Array(text.length).fill(true);
+  for (const [s, e] of blocks) {
+    for (let k = s; k < e; k++) keep[k] = false;
+  }
+  const cleanedChars = [];
+  const origIdx = [];
+  for (let i = 0; i < text.length; i++) {
+    if (keep[i]) { cleanedChars.push(text[i]); origIdx.push(i); }
+  }
+  const cleaned = cleanedChars.join('');
+  // 3) Precompute line start offsets for cleaned and mapping to original
+  const cleanedLineStarts = [0];
+  for (let i = 0; i < cleaned.length; i++) if (cleaned.charCodeAt(i) === 10) cleanedLineStarts.push(i + 1);
+  return function(parsedLine1Based) {
+    const idx = Math.max(1, Math.min(parsedLine1Based, cleanedLineStarts.length));
+    const startClean = cleanedLineStarts[idx - 1];
+    const orig = origIdx[startClean] ?? 0;
+    // compute original line number (1-based)
+    let line = 1;
+    for (let i = 0; i < orig; i++) if (text.charCodeAt(i) === 10) line++;
+    return line;
   };
 }
 
@@ -315,10 +458,13 @@ connection.onRequest('deltascript/reindex', () => {
 const KEYWORDS = [
   'func','let','const','class','interface','inmut','mut','call',
   'if','else','for','while','try','catch','finally','return','new','throw','extends','implements',
-  'async','await','break','continue','switch','case','default'
+  'async','await','break','continue','switch','case','default','import','from','export'
 ];
 const TYPES = ['num','str','mbool','obj','arr'];
 const SPEC_METHODS = ['log','error','warn','info','debug','success','input'];
+const JS_GLOBAL_FUNCS = ['parseInt','parseFloat','isNaN','isFinite','decodeURI','decodeURIComponent','encodeURI','encodeURIComponent','setTimeout','setInterval','clearTimeout','clearInterval','queueMicrotask'];
+const JS_GLOBAL_OBJECTS = ['Number','String','Boolean','Array','Object','Map','Set','WeakMap','WeakSet','Date','Math','JSON','RegExp','Promise','Symbol','BigInt','Error','TypeError','RangeError'];
+const JS_COMMON_METHODS = ['toString','valueOf','hasOwnProperty','push','pop','shift','unshift','map','filter','reduce','forEach','find','findIndex','slice','splice','includes','indexOf','startsWith','endsWith','trim','toUpperCase','toLowerCase','split','join'];
 const CONST_VALUES = ['true','false','maybe'];
 
 connection.onCompletion((params) => {
@@ -336,6 +482,9 @@ connection.onCompletion((params) => {
   for (const v of CONST_VALUES) push(v, CompletionItemKind.Constant);
   // spec.* methods
   for (const m of SPEC_METHODS) push(`spec.${m}`, CompletionItemKind.Function);
+  // JS built-in globals
+  for (const f of JS_GLOBAL_FUNCS) push(f, CompletionItemKind.Function);
+  for (const o of JS_GLOBAL_OBJECTS) push(o, CompletionItemKind.Class);
 
   // Local symbols with simple scope/position filtering
   const idx = symbolIndex.get(doc.uri);
@@ -359,8 +508,12 @@ connection.onCompletion((params) => {
 
   // Contextual: after 'spec.' prefer spec methods
   const tail = text.slice(Math.max(0, offset - 50), offset);
-  if (/spec\s*\.$/.test(tail)) {
+  if (/spec\s*\.\s*$/.test(tail)) {
     for (const mth of SPEC_METHODS) push(mth, CompletionItemKind.Method);
+  }
+  // Contextual: generic methods after '.'
+  if (/\.\s*$/.test(tail)) {
+    for (const mth of JS_COMMON_METHODS) push(mth, CompletionItemKind.Method);
   }
 
   // Previously seen words before cursor in the same document
@@ -413,6 +566,21 @@ connection.onHover((params) => {
   const word = getWordAt(doc.getText(), offset);
   if (!word) return null;
 
+  // Import path hover: if inside a string following import/from, show resolved path + file snippet
+  const importInfo = findImportStringAt(doc.getText(), pos);
+  if (importInfo) {
+    const baseFs = uriToFsPath(doc.uri);
+    const resolved = resolveImportPath(baseFs, importInfo.specifier);
+    let snippet = '';
+    try {
+      const raw = fs.readFileSync(resolved.fsPath, 'utf8');
+      snippet = raw.split(/\r?\n/).slice(0, 12).join('\n');
+    } catch {}
+    const shown = resolved.display;
+    const md = `**Import**\n\nPath: ${shown}\n\n\`\`\`deltascript\n${snippet}\n\`\`\``;
+    return { contents: { kind: MarkupKind.Markdown, value: md } };
+  }
+
   const idx = symbolIndex.get(doc.uri);
   const sym = idx?.symbols.find(s => s.name === word);
   if (sym) {
@@ -425,6 +593,26 @@ connection.onHover((params) => {
     const snippet = lines.slice(start, end + 1).join('\n');
     const md = `**${kind}** ${sym.name}\n\n\`\`\`deltascript\n${snippet}\n\`\`\``;
     return { contents: { kind: MarkupKind.Markdown, value: md } };
+  }
+  // Cross-file: search imported files for the symbol and show snippet
+  const imported = collectImportedFiles(doc.getText(), doc.uri);
+  for (const imp of imported) {
+    try {
+      const text = fs.readFileSync(imp.fsPath, 'utf8');
+      const uri = 'file://' + (process.platform === 'win32' ? '/' : '') + imp.fsPath.replace(/\\/g, '/');
+      // lightweight index on demand
+      const localIdx = buildTempSymbolIndex(text);
+      const found = localIdx.symbols.find(s => s.name === word);
+      if (found) {
+        const lines = text.split(/\r?\n/);
+        const defLine = found.range.start.line;
+        const start = Math.max(0, defLine);
+        const end = Math.min(lines.length - 1, defLine + 6);
+        const snippet = lines.slice(start, end + 1).join('\n');
+        const md = `**${SymbolKind[found.kind] || 'Symbol'}** ${word} (from ${imp.display})\n\n\`\`\`deltascript\n${snippet}\n\`\`\``;
+        return { contents: { kind: MarkupKind.Markdown, value: md } };
+      }
+    } catch {}
   }
   if (TYPES.includes(word)) {
     return { contents: { kind: MarkupKind.Markdown, value: `Type 
@@ -472,8 +660,21 @@ connection.onDefinition((params) => {
   if (!word) return null;
   const idx = symbolIndex.get(doc.uri);
   const sym = idx?.symbols.find(s => s.name === word);
-  if (!sym) return null;
-  return { uri: doc.uri, range: sym.range };
+  if (sym) return { uri: doc.uri, range: sym.range };
+  // Cross-file: search imported files for definition
+  const imported = collectImportedFiles(doc.getText(), doc.uri);
+  for (const imp of imported) {
+    try {
+      const text = fs.readFileSync(imp.fsPath, 'utf8');
+      const localIdx = buildTempSymbolIndex(text);
+      const found = localIdx.symbols.find(s => s.name === word);
+      if (found) {
+        const uri = 'file://' + (process.platform === 'win32' ? '/' : '') + imp.fsPath.replace(/\\/g, '/');
+        return { uri, range: found.range };
+      }
+    } catch {}
+  }
+  return null;
 });
 
 function positionToOffset(text, position) {
@@ -493,6 +694,123 @@ function getWordAt(text, offset) {
     if (m.index <= offset && re.lastIndex >= offset) return m[0];
   }
   return null;
+}
+
+// -----------------------------
+// Import helpers (top-level)
+// -----------------------------
+function findImportStringAt(text, position) {
+  try {
+    const lineStartOff = positionToOffset(text, { line: position.line, character: 0 });
+    const lineEndIdx = text.indexOf('\n', lineStartOff);
+    const lineText = text.slice(lineStartOff, lineEndIdx === -1 ? text.length : lineEndIdx);
+    const ch = position.character;
+    const m = /(['"])\s*([^'"\n]+?)\s*\1/g;
+    let q;
+    while ((q = m.exec(lineText)) !== null) {
+      const start = q.index;
+      const end = m.lastIndex;
+      if (ch >= start && ch <= end) {
+        if (/\b(import|from)\b/.test(lineText)) return { specifier: q[2] };
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function resolveImportPath(baseFsPath, spec) {
+  try {
+    const baseDir = path.dirname(baseFsPath);
+    let s = spec;
+    if (!/^\.|\//.test(s) && !/^([A-Za-z]:\\|file:\/\/)/.test(s)) s = './' + s;
+    const candDs = path.resolve(baseDir, s.endsWith('.ds') ? s : s + '.ds');
+    const candJs = path.resolve(baseDir, s.endsWith('.js') ? s : s + '.js');
+    if (fs.existsSync(candDs)) return { fsPath: candDs, display: candDs };
+    return { fsPath: candJs, display: candJs };
+  } catch { return { fsPath: spec, display: spec }; }
+}
+
+function buildTempSymbolIndex(text) {
+  const symbols = [];
+  const funcRe = /\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/g;
+  const classRe = /\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  const ifaceRe = /\binterface\s+([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  const toPos = (idx) => {
+    const pre = text.slice(0, idx);
+    const lines = pre.split(/\r?\n/);
+    return { line: lines.length - 1, character: lines[lines.length - 1].length };
+  };
+  let m;
+  while ((m = funcRe.exec(text)) !== null) symbols.push({ name: m[1], kind: SymbolKind.Function, range: { start: toPos(m.index), end: toPos(m.index + m[0].length) } });
+  while ((m = classRe.exec(text)) !== null) symbols.push({ name: m[1], kind: SymbolKind.Class, range: { start: toPos(m.index), end: toPos(m.index + m[0].length) } });
+  while ((m = ifaceRe.exec(text)) !== null) symbols.push({ name: m[1], kind: SymbolKind.Interface, range: { start: toPos(m.index), end: toPos(m.index + m[0].length) } });
+  return { symbols };
+}
+
+function collectImportedFiles(text, docUri) {
+  const res = [];
+  try {
+    const baseFs = uriToFsPath(docUri);
+    const rx = /\bfrom\s+['"]([^'"\n]+)['"]|\bimport\s+['"]([^'"\n]+)['"]/g;
+    let m;
+    while ((m = rx.exec(text)) !== null) {
+      const spec = m[1] || m[2];
+      const resolved = resolveImportPath(baseFs, spec);
+      res.push(resolved);
+    }
+  } catch {}
+  return res;
+}
+
+// -----------------------------
+// Column mapping per line (parsed -> source)
+// -----------------------------
+function mapParsedColumnToSource(srcLine, parsedCol) {
+  const map = buildColumnMapForLine(srcLine);
+  if (map.length === 0) return parsedCol;
+  const idx = Math.max(0, Math.min(parsedCol, map.length - 1));
+  return map[idx];
+}
+
+function buildColumnMapForLine(srcLine) {
+  let i = 0;
+  const n = srcLine.length;
+  const outToSrc = [];
+  const pushMany = (count, srcIndex) => { for (let k = 0; k < count; k++) outToSrc.push(srcIndex); };
+  while (i < n) {
+    const rest = srcLine.slice(i);
+    // identifier::Type removal
+    let m = /^([A-Za-z_$][\w$]*)::([A-Za-z_$<>\[\]]+)/.exec(rest);
+    if (m) {
+      const id = m[1];
+      // emit identifier only
+      for (let k = 0; k < id.length; k++) outToSrc.push(i + k);
+      i += m[0].length;
+      continue;
+    }
+    // maybe substitution
+    m = /^\bmaybe\b/.exec(rest);
+    if (m) {
+      // transpiler expands to a long expression; map all emitted chars back to start of 'maybe'
+      // We approximate with 1:1 by emitting 5 chars to keep mapping sane
+      const len = 5; // 'maybe'
+      for (let k = 0; k < len; k++) outToSrc.push(i);
+      i += len;
+      continue;
+    }
+    // func -> function
+    m = /^\bfunc\b/.exec(rest);
+    if (m) {
+      // 'function' length 8; map to start of 'func'
+      pushMany(8, i);
+      i += 4;
+      continue;
+    }
+    // default: copy char
+    outToSrc.push(i);
+    i += 1;
+  }
+  return outToSrc;
 }
 
 function uriToFsPath(uri) {
