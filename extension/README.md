@@ -1,30 +1,36 @@
 # DeltaScript VS Code Extension
 
-Language support for [DeltaScript](https://www.npmjs.com/package/deltascript): syntax highlighting, diagnostics via LSP, completions, hovers, go to definition, and a file icon for `.ds`.
+Language support for [DeltaScript](https://www.npmjs.com/package/deltascript): syntax highlighting, inline diagnostics (syntax and types), completions, hovers with code previews, go to definition.
 
 ## Features
 
-- Syntax highlighting (TextMate grammar).
+- Syntax highlighting (keywords, types, function declarations/calls, member calls, `maybe/true/false`, `::Type` annotations).
 - Language configuration (comments, brackets, auto-closing pairs).
-- LSP diagnostics powered by DeltaScript transpiler (`transpileSpark`).
-- Completions:
-  - Keywords (func, class, interface, control flow…).
-  - Types (num, str, mbool, obj, arr).
+- Inline diagnostics via LSP (syntax and DeltaScript type errors) with red squiggles and Problems entries.
+- Smarter completions:
+  - Keywords (async/await, control flow, declarations).
+  - Types (num, str, mbool, obj, arr) and constants (true, false, maybe).
   - `spec.*` helpers (log, error, warn, info, debug, success, input).
+  - In-scope/local identifiers and previously typed words.
   - Snippets (function and class).
-- Hover: symbol kind, basic type info and `maybe`.
-- Go to Definition: within the current document (functions, classes, interfaces, variables).
+- Hover:
+  - Keyword/tooltips for `mut`, `inmut`, `func`, `interface`, `spec.*`.
+  - Code preview of symbol definitions (functions, classes, interfaces, variables).
+- Go to Definition, Document/Workspace Symbols, References, Rename, Signature Help.
 
 ## Requirements
 
 - VS Code 1.84+
 - Node.js 18+
-- The extension bundles a simple LSP server and uses the `deltascript` transpiler for diagnostics. It looks first for the package, then falls back to the workspace `../../dist/transpiler.js` when developing alongside the language repo.
+- The extension starts a bundled LSP server and uses the DeltaScript transpiler for diagnostics. Load order:
+  1) `extension/server/transpiler.js` (bundled copy you can update when building the language)
+  2) `deltascript/dist/transpiler.js` (installed package)
+  3) `../../dist/transpiler.js` (when developing side-by-side)
 
 ## Usage
 
 - Open a `.ds` file.
-- You will get colorization, diagnostics, completion, hover, and go-to-definition.
+- You will get colorization, inline errors (syntax + type), completions, hover details with code previews, go-to-definition, and more.
 
 ## License
 

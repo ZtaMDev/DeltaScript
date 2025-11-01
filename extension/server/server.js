@@ -1,16 +1,49 @@
 const { createConnection, TextDocuments, ProposedFeatures, DiagnosticSeverity, CompletionItemKind, MarkupKind, SymbolKind } = require('vscode-languageserver/node');
 const { TextDocument } = require('vscode-languageserver-textdocument');
+const { pathToFileURL, fileURLToPath } = require('url');
+const fs = require('fs');
+const path = require('path');
 
-// Try to load DeltaScript transpiler
+// Try to load DeltaScript transpiler (supports ESM bundled and package fallback)
 let transpile;
-try {
-  // Prefer installed package
-  transpile = require('./transpiler.js');
-} catch (e) {
+async function ensureTranspilerLoaded() {
+  if (transpile) return transpile;
+  // 1) Bundled transpiler.js (ESM)
   try {
-    // Fallback to workspace relative path if running unpacked
-    transpile = require('./transpiler.js');
+    const esm = await import(pathToFileURL(path.join(__dirname, 'transpiler.js')).href);
+    const mod = esm?.default && esm.default.transpileSpark ? esm.default : esm;
+    if (mod?.transpileSpark) { transpile = mod; return transpile; }
   } catch {}
+  // 2) Installed package (CJS/ESM)
+  try {
+    const pkg = await import('deltascript/dist/transpiler.js');
+    const mod = pkg?.default && pkg.default.transpileSpark ? pkg.default : pkg;
+    if (mod?.transpileSpark) { transpile = mod; return transpile; }
+  } catch {}
+  // 3) Workspace repo dist (CJS/ESM)
+  try {
+    const local = await import(pathToFileURL(path.join(__dirname, '../../dist/transpiler.js')).href);
+    const mod = local?.default && local.default.transpileSpark ? local.default : local;
+    if (mod?.transpileSpark) { transpile = mod; return transpile; }
+  } catch {}
+  return null;
+}
+
+function withSilencedConsole(fn) {
+  const origError = console.error;
+  const origWarn = console.warn;
+  const origLog = console.log;
+  try {
+    console.error = () => {};
+    console.warn = () => {};
+    // Keep normal logs quiet during validation
+    console.log = () => {};
+    return fn();
+  } finally {
+    console.error = origError;
+    console.warn = origWarn;
+    console.log = origLog;
+  }
 }
 
 const connection = createConnection(ProposedFeatures.all);
@@ -34,33 +67,117 @@ connection.onInitialize((params) => {
   } catch {}
   return {
     capabilities: {
-      textDocumentSync: documents.syncKind,
-      diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false }
+      textDocumentSync: documents.syncKind
     }
   };
 });
 
-function validateTextDocument(textDocument) {
+async function validateTextDocument(textDocument) {
   const text = textDocument.getText();
+  /** @type {import('vscode-languageserver-types').Diagnostic[]} */
   const diagnostics = [];
-  if (!transpile || typeof transpile.transpileSpark !== 'function') {
+  const tp = await ensureTranspilerLoaded();
+  if (!tp || typeof tp.transpileSpark !== 'function') {
     return diagnostics; // no engine; avoid noisy diagnostics
   }
+  const offsetFn = buildInterfaceOffsetAdjuster(text);
   try {
-    // Use fileName to help error messages
-    transpile.transpileSpark(text, textDocument.uri);
+    // transpileSpark may either:
+    // - return JS string, or
+    // - return { code, diagnostics }
+    const fsPath = uriToFsPath(textDocument.uri) || textDocument.uri;
+    const result = await withSilencedConsole(() => tp.transpileSpark(text, fsPath));
+    let js = '';
+    if (result && typeof result === 'object' && 'code' in result) {
+      js = String(result.code || '');
+      if (Array.isArray(result.diagnostics)) {
+        for (const d of result.diagnostics) {
+          const rawL = Math.max(1, Number(d?.line ?? 1));
+          const msgStr = String(d?.message || '');
+          const applyOffset = /syntax error/i.test(msgStr);
+          const l = Math.max(0, (applyOffset ? offsetFn(rawL) : rawL) - 1);
+          const c = Math.max(0, Number(d?.column ?? 1) - 1);
+          diagnostics.push({
+            severity: DiagnosticSeverity.Error,
+            range: { start: { line: l, character: c }, end: { line: l, character: c + 1 } },
+            message: String(d?.message || 'Error'),
+            source: 'DeltaScript'
+          });
+        }
+      }
+    } else if (typeof result === 'string') {
+      js = result;
+    }
+    // Optional JS syntax check: skip for ESM or empty output to avoid false positives
+    if (js && js.trim() && !/\bimport\b|\bexport\b/.test(js)) {
+      try { new Function(js); } catch (e) {
+        const msg = String(e?.message || 'Generated JS syntax error');
+        diagnostics.push({
+          severity: DiagnosticSeverity.Error,
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+          message: `[JS] ${msg}`,
+          source: 'DeltaScript'
+        });
+      }
+    }
   } catch (err) {
-    const line = Number(err?.line ?? 1) - 1;
-    const column = Number(err?.column ?? 1) - 1;
-    const message = String(err?.message || 'Syntax error');
-    diagnostics.push({
-      severity: DiagnosticSeverity.Error,
-      range: { start: { line, character: Math.max(0, column) }, end: { line, character: Math.max(0, column + 1) } },
-      message,
-      source: 'DeltaScript'
-    });
+    // transpiler threw; it may contain a single error or a list in err.errors
+    const list = Array.isArray(err?.errors) ? err.errors : [err];
+    for (const e of list) {
+      const rawL = Math.max(1, Number(e?.line ?? 1));
+      const msgStr = String(e?.message || '');
+      const applyOffset = /syntax error/i.test(msgStr);
+      const line = Math.max(0, (applyOffset ? offsetFn(rawL) : rawL) - 1);
+      const column = Math.max(0, Number(e?.column ?? 1) - 1);
+      const message = String(e?.message || 'Syntax error');
+      diagnostics.push({
+        severity: DiagnosticSeverity.Error,
+        range: { start: { line, character: column }, end: { line, character: column + 1 } },
+        message,
+        source: 'DeltaScript'
+      });
+    }
   }
   return diagnostics;
+}
+
+// Build a function that adjusts line numbers to account for removed interface blocks
+function buildInterfaceOffsetAdjuster(text) {
+  // Find all interface blocks and compute cumulative removed lines before any given line
+  const blocks = [];
+  const re = /(^|\n)\s*interface\s+[A-Za-z_$][\w$]*\s*\{/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const startIdx = m.index + (m[1] ? m[1].length : 0);
+    const startLine = indexToLine(text, startIdx) + 1; // 1-based
+    // Find matching closing brace for this block
+    let i = startIdx;
+    let depth = 0;
+    for (; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { i++; break; } }
+    }
+    const endLine = indexToLine(text, i) + 1; // line after '}'
+    const removed = Math.max(0, endLine - startLine + 1);
+    if (removed > 0) blocks.push({ startLine, endLine, removed });
+  }
+  // Sort blocks by startLine
+  blocks.sort((a,b) => a.startLine - b.startLine);
+  return function adjust(line1Based) {
+    let add = 0;
+    for (const b of blocks) {
+      if (b.endLine < line1Based) add += b.removed;
+      else break;
+    }
+    return line1Based + add;
+  };
+}
+
+function indexToLine(text, idx) {
+  let line = 0;
+  for (let i = 0; i < idx; i++) if (text.charCodeAt(i) === 10) line++;
+  return line;
 }
 
 function buildSymbolIndex(uri, text) {
@@ -124,20 +241,20 @@ function buildSymbolIndex(uri, text) {
 }
 
 documents.onDidChangeContent(async (change) => {
-  const diagnostics = validateTextDocument(change.document);
+  const diagnostics = await validateTextDocument(change.document);
   buildSymbolIndex(change.document.uri, change.document.getText());
   connection.sendDiagnostics({ uri: change.document.uri, diagnostics });
 });
 
 documents.onDidOpen(async (open) => {
-  const diagnostics = validateTextDocument(open.document);
+  const diagnostics = await validateTextDocument(open.document);
   buildSymbolIndex(open.document.uri, open.document.getText());
   connection.sendDiagnostics({ uri: open.document.uri, diagnostics });
 });
 
-connection.onDidChangeWatchedFiles(() => {
+connection.onDidChangeWatchedFiles(async () => {
   for (const doc of documents.all()) {
-    const diagnostics = validateTextDocument(doc);
+    const diagnostics = await validateTextDocument(doc);
     connection.sendDiagnostics({ uri: doc.uri, diagnostics });
   }
 });
@@ -150,16 +267,7 @@ connection.onInitialized(() => {
   scanWorkspace();
 });
 
-function uriToFsPath(uri) {
-  try {
-    const u = new URL(uri);
-    if (u.protocol !== 'file:') return '';
-    return process.platform === 'win32' ? u.pathname.replace(/^\//, '').replace(/\//g, '\\') : u.pathname;
-  } catch { return ''; }
-}
-
-const fs = require('fs');
-const path = require('path');
+// fs and path are imported at top (ESM)
 
 function scanWorkspace() {
   const seen = new Set();
@@ -206,28 +314,66 @@ connection.onRequest('deltascript/reindex', () => {
 // ----------------------------------
 const KEYWORDS = [
   'func','let','const','class','interface','inmut','mut','call',
-  'if','else','for','while','try','catch','finally','return','new','throw','extends','implements'
+  'if','else','for','while','try','catch','finally','return','new','throw','extends','implements',
+  'async','await','break','continue','switch','case','default'
 ];
 const TYPES = ['num','str','mbool','obj','arr'];
 const SPEC_METHODS = ['log','error','warn','info','debug','success','input'];
+const CONST_VALUES = ['true','false','maybe'];
 
 connection.onCompletion((params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) return [];
   const items = [];
+  const seen = new Set();
+  const push = (label, kind) => { if (!seen.has(label)) { seen.add(label); items.push({ label, kind }); } };
+
   // Keywords
-  for (const k of KEYWORDS) items.push({ label: k, kind: CompletionItemKind.Keyword });
+  for (const k of KEYWORDS) push(k, CompletionItemKind.Keyword);
   // Types
-  for (const t of TYPES) items.push({ label: t, kind: CompletionItemKind.TypeParameter });
+  for (const t of TYPES) push(t, CompletionItemKind.TypeParameter);
+  // Constants
+  for (const v of CONST_VALUES) push(v, CompletionItemKind.Constant);
   // spec.* methods
-  for (const m of SPEC_METHODS) items.push({ label: `spec.${m}`, kind: CompletionItemKind.Function });
-  // Local symbols
+  for (const m of SPEC_METHODS) push(`spec.${m}`, CompletionItemKind.Function);
+
+  // Local symbols with simple scope/position filtering
   const idx = symbolIndex.get(doc.uri);
+  const text = doc.getText();
+  const offset = positionToOffset(text, params.position);
   if (idx) {
+    const cursorLevel = blockLevelAt(text, offset);
     for (const s of idx.symbols) {
-      items.push({ label: s.name, kind: kindToCompletion(s.kind) });
+      // For variables, suggest only if declared before cursor position and in-scope by naive block level
+      const declOffset = positionToOffset(text, s.range.start);
+      const startsBefore = declOffset <= offset;
+      if (s.kind === SymbolKind.Variable) {
+        const declLevel = blockLevelAt(text, declOffset);
+        if (startsBefore && declLevel <= cursorLevel) push(s.name, kindToCompletion(s.kind));
+      } else {
+        // functions/classes/interfaces are globally suggestible
+        push(s.name, kindToCompletion(s.kind));
+      }
     }
   }
+
+  // Contextual: after 'spec.' prefer spec methods
+  const tail = text.slice(Math.max(0, offset - 50), offset);
+  if (/spec\s*\.$/.test(tail)) {
+    for (const mth of SPEC_METHODS) push(mth, CompletionItemKind.Method);
+  }
+
+  // Previously seen words before cursor in the same document
+  const prior = text.slice(0, offset);
+  const re = /[A-Za-z_][A-Za-z0-9_]*/g;
+  let m;
+  while ((m = re.exec(prior)) !== null) {
+    const w = m[0];
+    // Skip if it's a keyword or type to avoid noise
+    if (KEYWORDS.includes(w) || TYPES.includes(w)) continue;
+    push(w, CompletionItemKind.Text);
+  }
+
   // Snippets
   items.push({
     label: 'func-snippet',
@@ -271,12 +417,43 @@ connection.onHover((params) => {
   const sym = idx?.symbols.find(s => s.name === word);
   if (sym) {
     const kind = SymbolKind[sym.kind] || 'Symbol';
-    return { contents: { kind: MarkupKind.Markdown, value: `**${kind}** ${sym.name}` } };
+    const text = doc.getText();
+    const defLine = sym.range.start.line;
+    const lines = text.split(/\r?\n/);
+    const start = Math.max(0, defLine);
+    const end = Math.min(lines.length - 1, defLine + 4);
+    const snippet = lines.slice(start, end + 1).join('\n');
+    const md = `**${kind}** ${sym.name}\n\n\`\`\`deltascript\n${snippet}\n\`\`\``;
+    return { contents: { kind: MarkupKind.Markdown, value: md } };
   }
   if (TYPES.includes(word)) {
     return { contents: { kind: MarkupKind.Markdown, value: `Type 
 \n- ${word === 'mbool' ? 'Tri-state logical (true/false/maybe)' : 'Primitive type'}` } };
   }
+  if (word === 'mut') {
+    return { contents: { kind: MarkupKind.Markdown, value: `**Keyword** mut\n\nExplicit mutation assignment while the variable remains mutable.` } };
+  }
+  if (word === 'inmut') {
+    return { contents: { kind: MarkupKind.Markdown, value: `**Keyword** inmut\n\nMarks an existing let as immutable from this point (like const). Further mutations are errors.` } };
+  }
+  if (word === 'func') {
+    return { contents: { kind: MarkupKind.Markdown, value: `**Keyword** func\n\nDeclares a function: \`func Name(params) { ... }\`.` } };
+  }
+  if (word === 'interface') {
+    return { contents: { kind: MarkupKind.Markdown, value: `**Keyword** interface\n\nDeclares a structural type: \`interface Name { field::Type; }\`.` } };
+  }
+  // spec and spec methods
+  if (word === 'spec') {
+    return { contents: { kind: MarkupKind.Markdown, value: `**spec**\n\nDeltaScript logging API with methods: log, error, warn, info, debug, success, input.` } };
+  }
+  const around = doc.getText().slice(Math.max(0, offset - 40), offset + 40);
+  if (/spec\s*\.\s*log\b/.test(around) && word === 'log') return { contents: { kind: MarkupKind.Markdown, value: `**spec.log**\n\nInfo logging.` } };
+  if (/spec\s*\.\s*error\b/.test(around) && word === 'error') return { contents: { kind: MarkupKind.Markdown, value: `**spec.error**\n\nError logging.` } };
+  if (/spec\s*\.\s*warn\b/.test(around) && word === 'warn') return { contents: { kind: MarkupKind.Markdown, value: `**spec.warn**\n\nWarning logging.` } };
+  if (/spec\s*\.\s*info\b/.test(around) && word === 'info') return { contents: { kind: MarkupKind.Markdown, value: `**spec.info**\n\nInformational logging.` } };
+  if (/spec\s*\.\s*debug\b/.test(around) && word === 'debug') return { contents: { kind: MarkupKind.Markdown, value: `**spec.debug**\n\nDebug logging.` } };
+  if (/spec\s*\.\s*success\b/.test(around) && word === 'success') return { contents: { kind: MarkupKind.Markdown, value: `**spec.success**\n\nSuccess logging.` } };
+  if (/spec\s*\.\s*input\b/.test(around) && word === 'input') return { contents: { kind: MarkupKind.Markdown, value: `**spec.input**\n\nAsync input prompt.` } };
   if (word === 'maybe') {
     return { contents: { kind: MarkupKind.Markdown, value: `Constant 
 \n- Represents an indeterminate logical value.` } };
@@ -316,6 +493,29 @@ function getWordAt(text, offset) {
     if (m.index <= offset && re.lastIndex >= offset) return m[0];
   }
   return null;
+}
+
+function uriToFsPath(uri) {
+  if (!uri) return null;
+  try {
+    if (uri.startsWith('file://')) return fileURLToPath(uri);
+  } catch {}
+  try {
+    const u = new URL(uri);
+    if (u.protocol === 'file:') return fileURLToPath(u);
+  } catch {}
+  // Fallback naive decode
+  try { return decodeURIComponent(uri.replace(/^file:\/\//, '')); } catch { return null; }
+}
+
+function blockLevelAt(text, offset) {
+  let level = 0;
+  for (let i = 0; i < offset; i++) {
+    const ch = text[i];
+    if (ch === '{') level++;
+    else if (ch === '}') level = Math.max(0, level - 1);
+  }
+  return level;
 }
 
 // ----------------------------------
