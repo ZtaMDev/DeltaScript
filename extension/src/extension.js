@@ -43,7 +43,7 @@ function registerClientlessFeatures(context) {
   const sel = { language: 'deltascript', scheme: 'file' };
 
   const KEYWORDS = [
-    'func','let','const','class','interface','inmut','call',
+    'func','let','const','class','interface','inmut','mut','call',
     'if','else','for','while','try','catch','finally','return','new','throw','extends','implements'
   ];
   const TYPES = ['num','str','mbool','obj','arr'];

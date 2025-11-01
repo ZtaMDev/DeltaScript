@@ -29,6 +29,24 @@ let bag::arr = [1, "a", true]  # untyped array
 let cfg::obj = { debug: true }
 ```
 
+## Mutability: mut / inmut
+
+- `inmut <var>`: marks an existing `let` variable as immutable from that point forward (like turning it into a const). Further reassignments or `mut <var> = ...` become errors.
+- `mut <var> = <expr>`: explicit mutation assignment, allowed only while the variable is still mutable.
+
+Examples:
+
+```
+let username::str = "Manuel"
+let score::num = 42
+
+mut score = 50          // allowed (score is still mutable)
+inmut username          // from here, username cannot change
+
+// This will error because username is now immutable:
+// mut username = "Other"
+```
+
 Reassignment must conform to the declared type.
 
 ## Functions

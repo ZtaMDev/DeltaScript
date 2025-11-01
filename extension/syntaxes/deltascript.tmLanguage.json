@@ -64,7 +64,7 @@
       "patterns": [
         {
           "name": "keyword.control.deltascript",
-          "match": "\\b(if|else|for|while|try|catch|finally|return|new|throw|class|interface|extends|implements|inmut|call)\\b"
+          "match": "\\b(if|else|for|while|try|catch|finally|return|new|throw|class|interface|extends|implements|inmut|mut|call)\\b"
         },
         { "name": "storage.type.deltascript", "match": "\\b(func|let|const)\\b" }
       ]

@@ -182,6 +182,17 @@ Highlights:
   else { spec.log("Default") }
   ```
 
+- Mutability controls (`mut` / `inmut`):
+  ```
+  let username::str = "Manuel"
+  let score::num = 42
+  
+  mut score = 50         // explicit mutation assignment (allowed while variable is mutable)
+  inmut username         // from this point on, username becomes immutable (const)
+  
+  // After inmut, further mutations are not allowed and `mut username = ...` will error.
+  ```
+
 - Interfaces (custom types):
   ```
   interface Person {
