@@ -2,7 +2,7 @@
   "name": "deltascript-vscode",
   "displayName": "DeltaScript",
   "description": "DeltaScript language support: syntax highlighting, LSP diagnostics, and file icon for .ds files.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "ZtaMDev",
   "icon": "logo.png",
   "repository": {

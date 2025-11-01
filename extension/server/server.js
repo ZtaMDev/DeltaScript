@@ -5,11 +5,11 @@ const { TextDocument } = require('vscode-languageserver-textdocument');
 let transpile;
 try {
   // Prefer installed package
-  transpile = require('deltascript/dist/transpiler.js');
+  transpile = require('./transpiler.js');
 } catch (e) {
   try {
     // Fallback to workspace relative path if running unpacked
-    transpile = require('../../dist/transpiler.js');
+    transpile = require('./transpiler.js');
   } catch {}
 }
 
