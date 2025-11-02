@@ -158,6 +158,24 @@ Highlights:
   }
   ```
 
+- Function return types:
+  ```
+  func Sum(a::num, b::num)::num {
+    return a + b
+  }
+
+  func Wrong()::num {
+    return "x"      # error: Return type mismatch (expects num)
+  }
+
+  func NoReturn()::str {
+    let x = 1
+  }                  # error: declares return type str but has no return
+  ```
+  - Annotate after the parameter list with `::ReturnType`.
+  - The compiler checks each `return` against the declared type and also reports missing returns.
+  - Object literal returns for interface types are validated against required fields (shallow).
+
 - Default parameters and type parsing:
   ```
   func Main(x::num = 3) {

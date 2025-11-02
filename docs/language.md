@@ -91,6 +91,36 @@ func Main(x::num = 3) {
 - Default values are supported. The compiler correctly infers the type ignoring the default literal in the type signature.
 - Return types are inferred; explicit annotations are optional.
 
+### Function return types
+
+You can explicitly annotate a function's return type after the parameter list using `::ReturnType`.
+
+```ts
+func Sum(a::num, b::num)::num {
+  return a + b
+}
+
+func Wrong()::num {
+  return "x"        # error: Return type mismatch (expects num)
+}
+
+func NoReturn()::str {
+  let x = 1
+}                    # error: declares return type str but has no return
+```
+
+- The compiler validates every `return` expression against the declared return type.
+- Missing return is reported at the `::ReturnType` position.
+- When returning an object literal for an interface type, required fields are validated (shallow check):
+
+```ts
+interface Person { name::str; age::num; }
+
+func Make()::Person {
+  return { name: "A" }    # error: expects Person (missing required: age)
+}
+```
+
 ## Classes
 
 ```ts

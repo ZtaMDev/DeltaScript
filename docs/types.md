@@ -96,3 +96,19 @@ func Main(x::num = 3) { spec.log(x) }
 ## Type Conformance
 
 Assignments must respect declared types. The compiler will report type mismatch errors with file:line:col and a code frame.
+
+## Function Return Types
+
+Annotate after the parameter list using `::ReturnType`.
+
+```ts
+func Sum(a::num, b::num)::num { return a + b }
+func Wrong()::num { return "x" }   # error: Return type mismatch (expects num)
+func NoReturn()::str { let x = 1 }  # error: declares return type str but has no return
+```
+
+- Object literal returns for interface types are checked against required fields (shallow):
+```ts
+interface Person { name::str; age::num }
+func Make()::Person { return { name: "A" } }  # error: missing required: age
+```

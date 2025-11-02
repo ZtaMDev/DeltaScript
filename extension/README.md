@@ -7,6 +7,7 @@ Language support for [DeltaScript](https://www.npmjs.com/package/deltascript): s
 - Syntax highlighting (keywords, types, function declarations/calls, member calls, `maybe/true/false`, `::Type` annotations).
 - Language configuration (comments, brackets, auto-closing pairs).
 - Inline diagnostics via LSP (syntax and DeltaScript type errors) with red squiggles and Problems entries.
+  - Includes function return type checking: mismatches at `return` sites and missing `return` when a function declares `::ReturnType`.
 - Smarter completions:
   - Keywords (async/await, control flow, declarations).
   - Types (num, str, mbool, obj, arr) and constants (true, false, maybe).
