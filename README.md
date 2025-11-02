@@ -70,8 +70,8 @@ dsc init
 
 Add a file:
 
-```
-# ./src/main.ds
+```ts
+// ./src/main.ds
 func Main() {
   spec.log("Hello from DeltaScript")
 }
@@ -121,7 +121,7 @@ When running a single file, `dsc` compiles to a temporary `.mjs` and executes it
 
 The configuration file is a JSON‑like object. Example:
 
-```
+```ts
 {
   module: 'cjs',
   outDir: 'dist',
@@ -144,7 +144,7 @@ See the full guide: [Language Docs](https://ztamdev.github.io/DeltaScript/langua
 Highlights:
 
 - Variables and types:
-  ```
+  ```ts
   let username::str = "Manuel"
   let score::num = 42
   let flags::arr<mbool> = [true, false, maybe]
@@ -152,39 +152,39 @@ Highlights:
   ```
 
 - Functions (`func` over `function`):
-  ```
+  ```ts
   func Greet(person::str) {
     spec.log("Hola " + person + "!")
   }
   ```
 
 - Function return types:
-  ```
+  ```ts
   func Sum(a::num, b::num)::num {
     return a + b
   }
 
   func Wrong()::num {
-    return "x"      # error: Return type mismatch (expects num)
+    return "x"      // error: Return type mismatch (expects num)
   }
 
   func NoReturn()::str {
     let x = 1
-  }                  # error: declares return type str but has no return
+  }                  // error: declares return type str but has no return
   ```
   - Annotate after the parameter list with `::ReturnType`.
   - The compiler checks each `return` against the declared type and also reports missing returns.
   - Object literal returns for interface types are validated against required fields (shallow).
 
 - Default parameters and type parsing:
-  ```
+  ```ts
   func Main(x::num = 3) {
     spec.log("types " + x)
   }
   ```
 
 - Classes:
-  ```
+  ```ts 
   class Counter {
     constructor(initial::num) {
       this.count::num = initial
@@ -195,7 +195,7 @@ Highlights:
   ```
 
 - Control flow:
-  ```
+  ```ts
   let i::num = 0
   for (i = 0; i < 3; i = i + 1) {
     spec.log("Iteración for:", i)
@@ -214,7 +214,7 @@ Highlights:
   ```
 
 - Mutability controls (`mut` / `inmut`):
-  ```
+  ```ts
   let username::str = "Manuel"
   let score::num = 42
   
@@ -225,7 +225,7 @@ Highlights:
   ```
 
 - Interfaces (custom types):
-  ```
+  ```ts
   interface Person {
     name::str;
     age::num;
@@ -245,7 +245,7 @@ Highlights:
 ### Interfaces – extended type checking
 
 - Optional fields with `?`:
-  ```
+  ```ts
   interface Product {
     id::num;
     name::str;
@@ -261,7 +261,7 @@ Highlights:
 - Comments are ignored by validators (lines starting with `//` and blocks `/* ... */`).
 
 Examples:
-```
+```ts
 let ok1::Product = { id: 1, name: "Laptop", price: 999.99, inStock: true, module: "cjs" };
 let ok2::Product = { id: 2, name: "Mouse", price: 29.99, inStock: maybe };
 let bad1::Product = { id: 3, name: "Cable", price: "9.99", inStock: true }; // error: price expects num

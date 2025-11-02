@@ -103,12 +103,12 @@ Annotate after the parameter list using `::ReturnType`.
 
 ```ts
 func Sum(a::num, b::num)::num { return a + b }
-func Wrong()::num { return "x" }   # error: Return type mismatch (expects num)
-func NoReturn()::str { let x = 1 }  # error: declares return type str but has no return
+func Wrong()::num { return "x" }   //error: Return type mismatch (expects num)
+func NoReturn()::str { let x = 1 }  //error: declares return type str but has no return
 ```
 
 - Object literal returns for interface types are checked against required fields (shallow):
 ```ts
 interface Person { name::str; age::num }
-func Make()::Person { return { name: "A" } }  # error: missing required: age
+func Make()::Person { return { name: "A" } }  //error: missing required: age
 ```

@@ -101,12 +101,12 @@ func Sum(a::num, b::num)::num {
 }
 
 func Wrong()::num {
-  return "x"        # error: Return type mismatch (expects num)
+  return "x"        //error: Return type mismatch (expects num)
 }
 
 func NoReturn()::str {
   let x = 1
-}                    # error: declares return type str but has no return
+}                    // error: declares return type str but has no return
 ```
 
 - The compiler validates every `return` expression against the declared return type.
@@ -117,7 +117,7 @@ func NoReturn()::str {
 interface Person { name::str; age::num; }
 
 func Make()::Person {
-  return { name: "A" }    # error: expects Person (missing required: age)
+  return { name: "A" }    // error: expects Person (missing required: age)
 }
 ```
 

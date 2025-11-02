@@ -927,9 +927,30 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
       return `import ${q}${spec}${q}`;
     });
 
-    // Remove trailing semicolon and comments for type inference
+    // Clean return/assignment expression for type inference
     const cleanExpr = (expr: string): string => {
-      return expr.replace(/\/\/.*$/, "").replace(/;+$/, "").trim();
+      let s = String(expr ?? "");
+      // strip line comments
+      s = s.replace(/\/\/.*$/, "");
+      s = s.trim();
+      // if there's a semicolon, keep only up to the first one
+      const semi = s.indexOf(';');
+      if (semi >= 0) s = s.slice(0, semi);
+      // helper: compute balance for pairs
+      const bal = (str: string, o: string, c: string) => {
+        let b = 0;
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          if (ch === o) b++; else if (ch === c) b--;
+        }
+        return b;
+      };
+      // trim trailing unmatched closers from the right (belonging to outer scopes)
+      while (bal(s, '{', '}') < 0) s = s.replace(/\s*\}\s*$/, '').trim();
+      while (bal(s, '(', ')') < 0) s = s.replace(/\s*\)\s*$/, '').trim();
+      // final tidy of trailing semicolons/spaces
+      s = s.replace(/;+$/, '').trim();
+      return s;
     };
 
     // Enforce return statement types when inside a function with declared return type
