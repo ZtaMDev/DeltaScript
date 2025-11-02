@@ -30,7 +30,7 @@
   <a href="https://ztamdev.github.io/DeltaScript/"><strong>Read the full documentation →</strong></a>
 </p>
 
-## Overview(This project is not a serious project is just an experiment that IDK why I just work on it so much XD)
+## Overview
 
 DeltaScript is a small language that compiles to JavaScript. It focuses on:
 - Clear and readable syntax.
