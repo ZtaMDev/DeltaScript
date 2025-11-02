@@ -951,6 +951,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                         return last.index + last[0].length;
                     })();
                     const after = retIdx >= 0 ? L.slice(retIdx) : L;
+                    const before = retIdx >= 0 ? L.slice(0, retIdx) : '';
                     const exprText = cleanExpr(after);
                     const hasValue = exprText.length > 0;
                     const expected = String(ctx.expected);
@@ -966,6 +967,26 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                             throw new CompileError(filePath, lineNo, 1, `Return type mismatch: function '${ctx.name}' expects ${expected}`);
                         }
                         const accessibleVars = scopeManager.getAllAccessibleVariables();
+                        // Merge inline let/const declarations that occur before return on the same line
+                        try {
+                            const declRx = /(^|[;{])\s*(let|const)\s+([A-Za-z_$][\w$]*)\s*(?:::\s*([A-Za-z_$<>\[\]]+))?\s*=\s*([^;]*)/g;
+                            let dm;
+                            while ((dm = declRx.exec(before)) !== null) {
+                                const vname = dm[3];
+                                const vtypeRaw = (dm[4] || '').trim();
+                                let vtype = null;
+                                if (vtypeRaw) {
+                                    vtype = vtypeRaw.endsWith('[]') ? 'arr' : vtypeRaw;
+                                }
+                                accessibleVars.set(vname, {
+                                    name: vname,
+                                    declaredKind: dm[2],
+                                    declaredType: vtype,
+                                    mutable: dm[2] === 'let',
+                                    declaredLine: lineNo
+                                });
+                            }
+                        } catch {}
                         const inferred = inferTypeFromExpr(exprText, accessibleVars, interfaces);
                         if (interfaces.has(expected) && exprText.trim().startsWith("{")) {
                             const iface = interfaces.get(expected);
