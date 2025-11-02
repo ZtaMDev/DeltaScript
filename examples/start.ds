@@ -1,0 +1,26 @@
+let number1::str = await spec.input("Ingrese el primer numero: ")
+
+let number2::str = await spec.input("Ingrese el segundo numero: ")
+
+spec.configure({showLevel:false, showTimestamp:false})
+
+spec.log("Seleccione una de las siguientes opciones:\n 1) Sumar \n 2) Restar \n 3) Multiplicar \n 4) Dividir")
+
+let selection::str = await spec.input("Escoja entre (1-4): ")
+
+if (selection == "1") {
+    let result::num = parseFloat(number1) + parseFloat(number2)
+    spec.log("El resultado es: " + result)
+}
+if (selection == "2") {
+    let result::num = parseFloat(number1) - parseFloat(number2)
+    spec.log("El resultado es: " + result)
+}
+if (selection == "3") {
+    let result::num = parseFloat(number1) * parseFloat(number2)
+    spec.log("El resultado es: " + result)
+}
+if (selection == "4") {
+    let result::num = parseFloat(number1) / parseFloat(number2)
+    spec.log("El resultado es: " + result)
+}

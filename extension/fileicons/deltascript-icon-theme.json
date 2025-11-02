@@ -1,0 +1,11 @@
+{
+  "$schema": "vscode://schemas/icon-theme",
+  "iconDefinitions": {
+    "deltascript": { "iconPath": "./icons/ds.svg" }
+  },
+  "fileExtensions": {
+    "ds": "deltascript"
+  },
+  "folder": "folder",
+  "folderExpanded": "folder-open"
+}

@@ -1,0 +1,172 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "DeltaScript",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#regex" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#js_builtins" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#function_decl" },
+    { "include": "#function_calls" },
+    { "include": "#member_calls" },
+    { "include": "#annotations" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.deltascript",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.deltascript",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "regex": {
+      "patterns": [
+        {
+          "name": "string.regexp.deltascript",
+          "match": "/(?![/*])(?:\\\\.|\\[(?:\\\\.|[^\\\\\\]\\n])*\\]|[^/\\n])+/[gimsuyd]*"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.deltascript",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "include": "#string_escapes" }]
+        },
+        {
+          "name": "string.quoted.single.deltascript",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "include": "#string_escapes" }]
+        },
+        {
+          "name": "string.template.deltascript",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            { "name": "constant.character.escape.deltascript", "match": "\\\\`" },
+            { "include": "#string_escapes" },
+            {
+              "name": "expression.embedded.deltascript",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                { "include": "#strings" },
+                { "include": "#regex" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "string_escapes": {
+      "patterns": [
+        { "name": "constant.character.escape.deltascript", "match": "\\\\." }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.decimal.deltascript", "match": "\\b(0|[1-9][0-9]*)(\\.[0-9]+)?\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.deltascript",
+          "match": "\\b(if|else|for|while|try|catch|finally|return|new|throw|class|interface|extends|implements|inmut|mut|call|await|async|break|continue|switch|case|default|import|from|export)\\b"
+        },
+        { "name": "storage.type.deltascript", "match": "\\b(func|let|const)\\b" }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        { "name": "punctuation.separator.type.deltascript", "match": "::" },
+        { "name": "punctuation.definition.generic.deltascript", "match": "[<>]" },
+        { "name": "constant.language.maybe.deltascript", "match": "\\bmaybe\\b" },
+        { "name": "constant.language.boolean.deltascript", "match": "\\b(true|false)\\b" },
+        {
+          "name": "meta.type-annotation.deltascript",
+          "match": "::\\s*([A-Za-z_][A-Za-z0-9_]*)(\\s*<[^>]+>)?",
+          "captures": {
+            "1": { "name": "support.type.deltascript" },
+            "2": { "name": "punctuation.definition.generic.deltascript" }
+          }
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "support.type.primitive.deltascript", "match": "\\b(num|str|mbool|obj|arr)\\b" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.deltascript", "match": "[=+\\-*/!<>]=?|&&|\\|\\|" },
+        { "name": "punctuation.separator.deltascript", "match": "[;:,\\.]" },
+        { "name": "punctuation.bracket.deltascript", "match": "[(){}\\[\\]]" }
+      ]
+    },
+    "function_decl": {
+      "patterns": [
+        {
+          "name": "meta.function.deltascript",
+          "begin": "\\bfunc\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(",
+          "beginCaptures": {
+            "1": { "name": "entity.name.function.deltascript" }
+          },
+          "end": "\\)",
+          "patterns": [ { "include": "#annotations" } ]
+        }
+      ]
+    },
+    "function_calls": {
+      "patterns": [
+        {
+          "name": "meta.function-call.deltascript",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.deltascript" }
+          }
+        }
+      ]
+    },
+    "member_calls": {
+      "patterns": [
+        {
+          "name": "meta.member-function-call.deltascript",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*\\.\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "variable.other.object.deltascript" },
+            "2": { "name": "entity.name.function.deltascript" }
+          }
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        { "name": "variable.other.readwrite.deltascript", "match": "[A-Za-z_][A-Za-z0-9_]*" }
+      ]
+    }
+    ,
+    "js_builtins": {
+      "patterns": [
+        { "name": "support.function.builtin.deltascript", "match": "\\b(parseInt|parseFloat|isNaN|isFinite|decodeURI|decodeURIComponent|encodeURI|encodeURIComponent|setTimeout|setInterval|clearTimeout|clearInterval|queueMicrotask)\\b" },
+        { "name": "support.class.builtin.deltascript", "match": "\\b(Number|String|Boolean|Array|Object|Map|Set|WeakMap|WeakSet|Date|Math|JSON|RegExp|Promise|Symbol|BigInt|Error|TypeError|RangeError)\\b" }
+      ]
+    }
+  },
+  "scopeName": "source.deltascript"
+}

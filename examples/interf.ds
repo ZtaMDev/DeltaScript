@@ -1,0 +1,17 @@
+interface Person {
+  name::str;
+  age::num;
+  tags::arr[];
+  meta::obj;
+}
+
+let p::Person = { 
+  name: "Luisa", 
+  age: 21, 
+  tags: ["dev","student"], 
+  meta: { verified: true } 
+};
+
+func main() {
+  spec.log(p);
+}

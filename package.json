@@ -1,0 +1,35 @@
+{
+  "name": "deltascript",
+  "version": "1.0.4",
+  "description": "DeltaScript (ds) - A modern typed superset that compiles to JavaScript",
+  "main": "dist/cli.js",
+  "bin": {
+    "dsc": "./dist/cli.js",
+    "spsc": "./dist/cli.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "dependencies": {
+    "acorn": "^8.15.0",
+    "acorn-walk": "^8.3.4",
+    "chalk": "^5.3.0",
+    "escodegen": "^2.1.0",
+    "estraverse": "^5.3.0",
+    "fs-extra": "^11.2.0",
+    "magic-string": "^0.26.0",
+    "spectrallogs": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/escodegen": "^0.0.10",
+    "@types/estraverse": "^5.1.7",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.2",
+    "vitepress": "^1.6.4"
+  }
+}

@@ -1,0 +1,123 @@
+// interface.sp
+interface Person {
+  name::str;
+  age::num;
+  tags::arr<str>;
+  meta::obj;
+}
+
+// variables y tipos
+let name::str = "Juan";
+let age::num = 30;
+let isActive::mbool = maybe;
+let scores::arr<num> = [95, 87, 92];
+let person::Person = {
+  name: "Maria",
+  age: 25,
+  tags: ["developer", "designer"],
+  meta: { verified: true }
+};
+
+// arrays tipados
+let names::arr<str> = ["Ana", "Carlos", "Diana"];
+let mixedArray::arr = [1, "hello", maybe]; // array mixto
+
+// reasignaciones y mut/inmut
+name = "Juanito";
+mut age = 31;
+inmut name; // a partir de aquí name es inmutable
+
+// funciones
+func greet(personName::str) {
+  spec.log("Hello, " + personName + "!");
+  return "greeted " + personName;
+}
+
+func add(a::num, b::num) {
+  return a + b;
+}
+
+// usar call para funciones que solo deben llamarse una vez
+call greet("World");
+
+// clase
+class Calculator {
+  constructor(initial::num) {
+    this.value = initial;
+  }
+
+  add(x::num) {
+    this.value = this.value + x;
+  }
+
+  multiply(x::num) {
+    this.value = this.value * x;
+  }
+}
+
+const calc = new Calculator(10);
+calc.add(5);
+calc.multiply(2);
+spec.log("Calculator value:", calc.value);
+
+// bucles
+let i::num = 0;
+for (i = 0; i < 5; i = i + 1) {
+  spec.log("For loop i:", i);
+}
+
+let j::num = 0;
+while (j < 3) {
+  spec.log("While loop j:", j);
+  j = j + 1;
+}
+
+// if/elif/else
+let option::str = "B";
+if (option === "A") {
+  spec.log("Option A selected");
+} else if (option === "B") {
+  spec.log("Option B selected");
+} else {
+  spec.log("Default option");
+}
+
+// try/catch
+try {
+  if (age < 0) {
+    throw new Error("Age cannot be negative");
+  }
+} catch (err) {
+  spec.log("Error caught:", err.message);
+} finally {
+  spec.log("This always runs");
+}
+
+
+// uso de interfaces en funciones
+func registerPerson(p::Person) {
+  spec.log("Registering:", p.name);
+}
+
+registerPerson(person);
+
+// arrays tipados con variables
+let newPerson::obj = { name: "Luis", age: 28, tags: ["engineer"], meta: {} };
+let people::arr<obj> = [person, newPerson, { name: "Ana", age: 22, tags: [], meta: {} }];
+
+
+interface Product { 
+  id::num; 
+  name::str; 
+  price::num; 
+  inStock::mbool; 
+  module?:: "esm" | "cjs"; 
+}
+
+let ok1::Product = { id: 1, name: "Laptop", price: 999.99, inStock: true, module: "cjs" };
+
+let ok2::Product = { id: 2, name: "Mouse", price: 29.99, inStock: maybe };
+
+//let bad1::Product = { id: 3, name: "Cable", price: "9.99", inStock: true };
+
+//let bad2::Product = { id: 4, name: "Hub", price: 19.99, inStock: true, module: "commonjs" };

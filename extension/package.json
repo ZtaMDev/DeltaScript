@@ -1,0 +1,51 @@
+{
+  "name": "deltascript-vscode",
+  "displayName": "DeltaScript",
+  "description": "DeltaScript language support: syntax highlighting, LSP diagnostics, and file icon for .ds files.",
+  "version": "1.0.6",
+  "publisher": "ZtaMDev",
+  "icon": "logo.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZtaMDev/deltascript.git"
+  },
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": ["Programming Languages"],
+  "type": "module",
+  "main": "./src/extension.mjs.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "deltascript",
+        "aliases": ["DeltaScript", "deltascript", "ds"],
+        "extensions": [".ds"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "deltascript",
+        "scopeName": "source.deltascript",
+        "path": "./syntaxes/deltascript.tmLanguage.json"
+      }
+    ]
+  },
+  "activationEvents": [
+    "onLanguage:deltascript",
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "build": "echo Build step not required (plain JS)",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "deltascript": "^1.0.0"
+  },
+  "devDependencies": {
+    "vsce": "^2.15.0"
+  }
+}

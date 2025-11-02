@@ -1,0 +1,8 @@
+export default {
+  module: 'cjs',
+  outDir: 'examples/dist',
+  entry: 'examples',
+  include: ['examples'],
+  exclude: ['node_modules'],
+  builtins: true
+}

@@ -1,0 +1,3 @@
+interface Person { name::str; age::num; }
+func Make()::Person { return { name: "A", age: 1 }; }
+func Ping()::void { return; }

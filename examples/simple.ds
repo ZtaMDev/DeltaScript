@@ -1,0 +1,33 @@
+let number::num = 3;
+let bool::mbool = maybe;
+
+number = 2;
+inmut number;
+
+let array::arr[] = []
+func Main(x::num = 3) {
+    spec.log("types " + x)
+}
+
+let newer::num = 4;
+Main(newer)
+
+let i::num = 0
+for (i = 0; i < 3; i = i + 1) {
+  spec.log("for i:", i)
+}
+
+let w::num = 0
+while (w < 2) {
+  spec.log("while w:", w)
+  w = w + 1
+}
+
+let opt::str = "B"
+if (opt === "A") {
+  spec.log("Option A")
+} else if (opt === "B") {
+  spec.log("Option B")
+} else {
+  spec.log("Default")
+}

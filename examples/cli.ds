@@ -1,0 +1,498 @@
+// cli.ds — Traducción línea por línea desde cli.ts a DeltaScript
+
+import fs from "fs"
+import path from "path"
+import os from "os"
+import { spawn } from "child_process"
+import chalk from "chalk"
+import { fileURLToPath } from "url"
+import { transpileFile, transpileSpark } from "./transpiler.js"
+import { loadConfig } from "./config.js"
+import { c } from "./utils/colors.js"
+
+// Estado global mut
+let _devWarnShown::mbool = false
+let _devSuggestShown::mbool = false
+
+const __dirname::str = path.dirname(fileURLToPath(import.meta.url))
+const args::arr<str> = process.argv.slice(2)
+const cmd::str = args[0]
+
+// Version flag: -v / --version
+try {
+  if (args.includes("-v") || args.includes("--version") || cmd === "-v" || cmd === "--version") {
+    const pkgPath::str = path.join(__dirname, "..", "package.json")
+    let v::str = ""
+    try {
+      const pkgRaw::str = fs.readFileSync(pkgPath, "utf8")
+      const pkg::obj = JSON.parse(pkgRaw)
+      v = String(pkg?.version || "")
+    } catch {}
+    if (v !== "") {
+      spec.log(`DeltaScript v${v}`)
+    } else {
+      spec.log("DeltaScript")
+    }
+    process.exit(0)
+  }
+} catch {}
+
+// Single-file fast path: dsc file.ds [args]
+let handled::mbool = false
+if (cmd && cmd.endsWith(".ds") && fs.existsSync(cmd)) {
+  handled = true
+  const pr = parseFlags(args.slice(1))
+  const flags::obj = pr.flags
+  const rest::arr<str> = pr.rest
+  runSingleFile(path.resolve(cmd), rest, flags)
+}
+
+if (!handled) switch (cmd) {
+  case "init": {
+    const configPath::str = path.join(process.cwd(), "dsk.config.ds")
+    if (fs.existsSync(configPath)) {
+      spec.warn("⚠ dsk.config.ds already exists.")
+      process.exit(0)
+    }
+
+    fs.writeFileSync(configPath, `export default {
+  module: 'cjs',
+  outDir: 'dist',
+  entry: 'src',
+  include: ['src'],
+  exclude: ['node_modules'],
+  builtins: true
+}`, "utf8")
+
+    spec.success("dsk.config.ds created successfully.")
+    // Ensure src directory exists
+    const srcDir::str = path.join(process.cwd(), "src")
+    if (!fs.existsSync(srcDir)) {
+      fs.mkdirSync(srcDir, { recursive: true })
+      spec.info("Created src/ directory.")
+    }
+    break
+  }
+
+  case "build":
+  case "dev": {
+    const config::obj = loadConfig()
+    const entryDir::str = path.resolve(config.entry || ".")
+    const outDir::str = path.resolve(config.outDir || ".")
+    const pf = parseFlags(args.slice(1))
+    const flags::obj = pf.flags
+
+    let files::arr<str> = getAllFiles(entryDir, [".ds"], config.exclude || [])
+    // Always exclude the root config file if it falls under entryDir
+    files = files.filter(f => path.basename(f) !== "dsk.config.ds")
+
+    spec.title(`⚡ DeltaScript Compiler`)
+    spec.info(`Building ${files.length} .ds files...\n`)
+
+    const compiled::arr<obj> = []
+    const failed::arr<obj> = []
+    let printedConsoleTip::mbool = false
+    let consoleFiles::num = 0
+    let consoleTotal::num = 0
+
+    for (const file of files) {
+      const relative::str = path.relative(entryDir, file)
+      const outputPath::str = path.join(outDir, relative.replace(/\.ds$/, ".js"))
+      try {
+        const src::str = fs.readFileSync(file, "utf8")
+        const res::any = transpileSpark(src, file)
+        const js::str = typeof res === "string" ? res : String(res?.code || "")
+        const diags::arr<obj> = Array.isArray(res?.diagnostics) ? res.diagnostics : []
+        if (diags.length > 0) {
+          for (const d of diags) {
+            const l::num = Math.max(1, Number(d.line || 1))
+            const ccol::num = Math.max(1, Number(d.column || 1))
+            failed.push({ inPath: file, line: l, column: ccol, message: String(d.message || "Error") })
+            spec.error("\n" + chalk.redBright.bold("✖ Error") + " " + chalk.bold(file) + ":" + chalk.yellow(String(l)) + ":" + chalk.yellow(String(ccol)))
+            printCodeFrame(file, l, ccol)
+            spec.error(chalk.white(String(d.message || "Error")) + "\n")
+          }
+          continue
+        }
+
+        // Flags and builtins resolution
+        const cfg::obj = config
+        const builtinsCfg::mbool = cfg?.builtins !== false
+        const builtins::mbool = flags.noBuiltins ? false : builtinsCfg
+        const migrate::mbool = !!flags.migrateToSpec
+
+        // SpectralLogs integration: auto-prepend imports when builtins or migrate
+        if (builtins || migrate) {
+          const injected::str = injectSpectralImports(js, !!flags.spectralCdn, process.cwd())
+          fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+          fs.writeFileSync(outputPath, injected, "utf8")
+        } else {
+          fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+          fs.writeFileSync(outputPath, js, "utf8")
+        }
+
+        // Optional migration from console.* to spec.*
+        if (migrate) {
+          const cur::str = fs.readFileSync(outputPath, "utf8")
+          const rewritten::str = rewriteConsoleToSpec(cur)
+          fs.writeFileSync(outputPath, rewritten, "utf8")
+        }
+
+        compiled.push({ inPath: file, outPath: outputPath })
+
+        const countCU::num = countConsoleUsage(src)
+        if (countCU > 0) { consoleFiles = consoleFiles + 1; consoleTotal = consoleTotal + countCU }
+
+        if (builtins && !migrate && !printedConsoleTip && countCU > 0) {
+          if (cmd === "dev" && _devWarnShown) {
+            // skip extra warnings in dev after first
+          } else {
+            printedConsoleTip = true
+            _devWarnShown = true
+            const rel::str = path.relative(process.cwd(), file)
+            spec.warn(`(warning) ${rel}: uses console.* → prefer spec.log/spec.error/etc.`)
+          }
+        }
+      } catch (err) {
+        // Aggregate failure info for summary and print inline frame
+        const e::any = err || {}
+        const line::num = typeof e.line === "number" ? e.line : undefined
+        const column::num = typeof e.column === "number" ? e.column : undefined
+        const message::str = e.message ? String(e.message) : "Unknown error"
+        failed.push({ inPath: file, line: line, column: column, message })
+
+        // Pretty per-error header and frame
+        const l::num = line ?? 1
+        const ccol::num = column ?? 1
+        spec.error("\n" + chalk.redBright.bold("✖ Error") + " " + chalk.bold(file) + ":" + chalk.yellow(String(l)) + ":" + chalk.yellow(String(ccol)))
+        printCodeFrame(file, l, ccol)
+        spec.error(chalk.white(message) + "\n")
+      }
+    }
+
+    // Summary output
+    spec.success(`✔ Compiled`)
+    spec.log(`${compiled.length} file(s):`)
+    for (const item of compiled) {
+      const relIn::str = path.relative(process.cwd(), item.inPath)
+      const relOut::str = path.relative(process.cwd(), item.outPath)
+      spec.log("  ", c.gray("•"), relIn, c.gray("→"), relOut)
+    }
+
+    if (failed.length > 0) {
+      spec.error("\n✖ Failed")
+      spec.log(`${failed.length} file(s):`)
+      for (const f of failed) {
+        const rel::str = path.relative(process.cwd(), f.inPath)
+        spec.log("  ", c.gray("•"), rel)
+      }
+      process.exitCode = 1
+    }
+
+    if ((consoleFiles >= 3 || consoleTotal >= 5) && cmd !== "dev") {
+      spec.warn(`(tip) frequent console.* detected across files → try --migrate-to-spec to rewrite automatically`)
+    } else if (cmd === "dev" && (consoleFiles >= 3 || consoleTotal >= 5) && !_devSuggestShown) {
+      _devSuggestShown = true
+      spec.warn(`(tip) frequent console.* detected → try --migrate-to-spec`)
+    }
+
+    if (cmd === "dev") watch(entryDir, outDir, config)
+    break
+  }
+
+  default: {
+    spec.log(c.bold("DeltaScript CLI"))
+    spec.log(c.gray("Flags:"))
+    spec.log("    --no-builtins          → disable auto imports and console tip (overrides config)")
+    spec.log("    --migrate-to-spec      → rewrite console.* calls to spec.* during compilation")
+    spec.log("    --spectral-cdn         → inject CDN imports (esm.sh) instead of node package imports")
+    spec.log("    -v, --version          → print DeltaScript version")
+    spec.log("  dsc init                 → create base configuration (dsk.config.ds)")
+    spec.log("  dsc build                → compile all .ds files")
+    spec.log("  dsc dev                  → watch mode (development)")
+    spec.log("  dsc <file.ds> [args...]  → transpile and run a .ds file immediately")
+  }
+}
+
+// ---------------------------------
+// Helpers
+// ---------------------------------
+
+func getAllFiles(dir::str, exts::arr<str>, exclude::arr<str>){
+  const result::arr<str> = []
+  const arrExt::arr<str> = Array.isArray(exts) ? exts : [exts]
+  for (const file of fs.readdirSync(dir)) {
+    const full::str = path.join(dir, file)
+    if (exclude.some(e => full.includes(e))) continue
+
+    const stat::obj = fs.statSync(full)
+    if (stat.isDirectory()) {
+      result.push(...getAllFiles(full, arrExt, exclude))
+    } else if (arrExt.some(ext => file.endsWith(ext))) {
+      result.push(full)
+    }
+  }
+  return result
+}
+
+func watch(entry::str, out::str, config::obj) {
+  spec.info("\n👀 Watching for changes...")
+  // Map<string, NodeJS.Timeout> -> usamos Map nativo (sin anotación concreta)
+  const timers = new Map()
+
+  fs.watch(entry, { recursive: true }, (evt, filename) => {
+    if (!filename || !filename.endsWith(".ds")) return
+    if (path.basename(filename) === "dsk.config.ds") return
+    const inPath::str = path.join(entry, filename)
+    const outPath::str = path.join(out, filename.replace(/\.ds$/, ".js"))
+    if (timers.has(inPath)) clearTimeout(timers.get(inPath))
+    const t = setTimeout(() => {
+      timers.delete(inPath)
+      try {
+        transpileFile(inPath, outPath)
+        spec.success(`Recompiled ` + filename)
+      } catch (err) {
+        spec.error(`Error compiling ` + filename + ": " + err.message)
+      }
+    }, 120)
+    timers.set(inPath, t)
+  })
+}
+
+func runSingleFile(inFile::str, args::arr<str>, flags::obj = {}) {
+  // Load config only if it exists to avoid noisy warning in single-file mode
+  const cfgPath::str = path.join(process.cwd(), "dsk.config.ds")
+  const hasConfig::mbool = fs.existsSync(cfgPath)
+  const config::obj = hasConfig ? loadConfig() : {}
+  const src::str = fs.readFileSync(inFile, "utf8")
+  try {
+    // Build a temporary workspace and transpile the entry and its .ds dependencies recursively
+    let outJsPath::str
+    let tempDir::str = null
+    const entryDir::str = path.dirname(inFile)
+    // Entry-level flags
+    const builtinsCfg::mbool = (config)?.builtins !== false
+    const builtinsEntry::mbool = flags.noBuiltins ? false : builtinsCfg
+    const migrateEntry::mbool = !!flags.migrateToSpec
+    const graph::arr<str> = resolveDsDependencyGraph(inFile)
+    // Create temp dir
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "deltascript-run-"))
+    // Mark temp workspace as ESM to avoid Node warnings for .js with import/export
+    try {
+      fs.writeFileSync(path.join(tempDir, "package.json"), JSON.stringify({ type: "module" }), "utf8")
+    } catch {}
+    // Transpile all .ds in graph into temp dir preserving relative structure to entryDir
+    for (const absPath of graph) {
+      const rel::str = path.relative(entryDir, absPath)
+      const outPath::str = path.join(tempDir, rel.replace(/\.ds$/, ".js"))
+      const code::str = fs.readFileSync(absPath, "utf8")
+      const res::any = transpileSpark(code, absPath)
+      const jsFileBase::str = typeof res === "string" ? res : String(res?.code || "")
+      const diags::arr<obj> = Array.isArray(res?.diagnostics) ? res.diagnostics : []
+      if (diags.length > 0) {
+        for (const d of diags) {
+          const l::num = Math.max(1, Number(d.line || 1))
+          const ccol::num = Math.max(1, Number(d.column || 1))
+          spec.error("\n" + chalk.redBright.bold("✖ Error") + " " + chalk.bold(absPath) + ":" + chalk.yellow(String(l)) + ":" + chalk.yellow(String(ccol)))
+          printCodeFrame(absPath, l, ccol)
+          spec.error(chalk.white(String(d.message || "Error")) + "\n")
+        }
+        throw new Error("Compilation failed")
+      }
+      let jsFile::str = jsFileBase
+      // Inject builtins into every module so spec is available cross-module
+      if (builtinsEntry || migrateEntry) {
+        jsFile = injectSpectralImports(jsFile, !!flags.spectralCdn, process.cwd())
+      }
+      // Only rewrite console->spec for entry file to avoid surprises
+      if (absPath === inFile && migrateEntry) jsFile = rewriteConsoleToSpec(jsFile)
+      fs.mkdirSync(path.dirname(outPath), { recursive: true })
+      fs.writeFileSync(outPath, jsFile, "utf8")
+    }
+    // Entry is executed as .mjs to allow top-level await; re-write extension for entry
+    const entryRel::str = path.relative(entryDir, inFile).replace(/\.ds$/, ".mjs")
+    outJsPath = path.join(tempDir, entryRel)
+    // Ensure .mjs exists by copying .js sibling
+    const entryJsPath::str = outJsPath.replace(/\.mjs$/, ".js")
+    try { fs.copyFileSync(entryJsPath, outJsPath) } catch {}
+
+    const child = spawn(process.execPath, [outJsPath, ...args], { stdio: "inherit", cwd: tempDir || process.cwd() })
+
+    let exiting::mbool = false
+    const onExit = (code) => {
+      // Cleanup temp artifacts if used
+      if (tempDir) {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch {}
+      }
+      process.exit(code ?? 0)
+    }
+
+    child.on("exit", (code) => onExit(code))
+    child.on("error", (err) => {
+      spec.error("Failed to start child process: " + String(err.message || err))
+      onExit(1)
+    })
+
+    const handleSigint = () => {
+      if (exiting) return
+      exiting = true
+      spec.log(chalk.gray("exiting process"))
+      try { child.kill("SIGINT") } catch {}
+    }
+    process.once("SIGINT", handleSigint)
+    process.once("SIGTERM", handleSigint)
+    const occ::num = countConsoleUsage(src)
+    if (builtinsEntry && !migrateEntry && occ > 0) {
+      if (!_devWarnShown) {
+        _devWarnShown = true
+        const rel::str = path.relative(process.cwd(), inFile)
+        spec.warn(`(warning) ${rel}: uses console.* → prefer spec.log/spec.error/etc.`)
+      }
+      if (occ >= 3 && !_devSuggestShown) {
+        _devSuggestShown = true
+        spec.warn(`(tip) frequent console.* in this file → run with --migrate-to-spec`)
+      }
+    }
+  } catch (err) {
+    const line::num = typeof err?.line === "number" ? err.line : 1
+    const col::num = typeof err?.column === "number" ? err.column : 1
+    spec.error("\n" + chalk.redBright.bold("✖ Error") + " " + chalk.bold(inFile) + ":" + chalk.yellow(String(line)) + ":" + chalk.yellow(String(col)))
+    printCodeFrame(inFile, line, col)
+    spec.error(chalk.redBright(err?.message || "Unknown error") + "\n")
+    process.exit(1)
+  }
+}
+
+// Helper to transpile without writing
+func transpileFileToString(src::str, filePath::str){
+  const res::any = transpileSpark(src, filePath)
+  return typeof res === "string" ? res : String(res?.code || "")
+}
+
+// Pretty code frame helper
+func printCodeFrame(filePath::str, line::num, column::num) {
+  try {
+    const raw::str = fs.readFileSync(filePath, "utf8")
+    const lines::arr<str> = raw.split(/\r?\n/)
+    const idx::num = Math.max(1, Math.min(line || 1, lines.length))
+    const start::num = Math.max(1, idx - 2)
+    const end::num = Math.min(lines.length, idx + 2)
+    for (let i = start; i <= end; i = i + 1) {
+      const ln::str = lines[i - 1] ?? ""
+      const marker::str = i === idx ? chalk.redBright(">") : " "
+      spec.error(`${marker} ${chalk.gray(String(i).padStart(4, " "))} ${chalk.gray("|")} ${highlightLine(ln)}`)
+      if (i === idx) {
+        const caretPos::num = Math.max(1, column || 1)
+        const pad::str = " ".repeat(caretPos - 1)
+        spec.error(`  ${chalk.gray("".padStart(4, " "))} ${chalk.gray("|")} ${pad}${chalk.redBright("^")}`)
+      }
+    }
+  } catch {
+    // ignore frame errors
+  }
+}
+
+func highlightLine(s::str) {
+  return s
+    .replace(/(\/\/.*$)/, (_m) => chalk.gray(_m))
+    .replace(/(['"][^'"\\]*(?:\\.[^'"\\]*)*['"])/g, (_m) => chalk.green(_m))
+    .replace(/\b(\d+(?:\.\d+)?)\b/g, (_m) => chalk.yellow(_m))
+    .replace(/\b(function|return|if|else|for|while|try|catch|finally|class|let|const|var|new|throw)\b/g, (_m) => chalk.cyanBright(_m))
+}
+
+// Detect console usage in source
+func hasConsoleUsage(src::str) {
+  return /\bconsole\.(log|error|warn|info|debug)\b/.test(src)
+}
+
+// Build a dependency graph of .ds files starting from entry
+func resolveDsDependencyGraph(entryAbs::str){
+  const seen = new Set()
+  const order::arr<str> = []
+  func visit(absPath::str) {
+    const real::str = path.resolve(absPath)
+    if (seen.has(real)) return
+    seen.add(real)
+    let content::str = ""
+    try { content = fs.readFileSync(real, "utf8") } catch { return }
+    const dir::str = path.dirname(real)
+    // import ... from "...ds" | export ... from "...ds"
+    const re = /\b(?:import|export)\b[\s\S]*?\bfrom\b\s*['"]([^'"]+\.ds)['"]/g
+    let m = null
+    while ((m = re.exec(content)) !== null) {
+      const spec = m[1]
+      const child = path.resolve(dir, spec)
+      visit(child)
+    }
+    order.push(real)
+  }
+  visit(entryAbs)
+  return order
+}
+
+func countConsoleUsage(src::str){
+  const re = /\bconsole\.(log|error|warn|info|debug)\b/g
+  let m = null
+  let n::num = 0
+  while ((m = re.exec(src)) !== null) n = n + 1
+  return n
+}
+
+// Inject SpectralLogs integration: default is an auto shim that works in Node and Browser.
+// If useCdn is true, inject static CDN imports instead.
+func injectSpectralImports(js::str, useCdn::mbool = false, projectRoot::str = process.cwd()) {
+  const hasExisting::mbool = /import\s+.*from\s+['"]https:\/\/esm\.sh\/spectrallogs/.test(js)
+    || /import\s+.*from\s+['"]spectrallogs/.test(js)
+    || /const\s+spec\s*=\s*\(\(\)\s*=>/.test(js)
+  if (hasExisting) return js
+
+  if (useCdn) {
+    const cdn1::str = "import spec from \"https://esm.sh/spectrallogs\""
+    const cdn2::str = "import specweb from \"https://esm.sh/spectrallogs/web\""
+    return `${cdn1}\n${cdn2}\n${js}`
+  }
+
+  // If package exists, prefer static package imports (no TLA)
+  try {
+    const pkgPath::str = path.join(projectRoot, "node_modules", "spectrallogs", "package.json")
+    if (fs.existsSync(pkgPath)) {
+      const pkg1::str = "import spec from 'spectrallogs'"
+      const pkg2::str = "import specweb from 'spectrallogs/web'"
+      return `${pkg1}\n${pkg2}\n${js}`
+    }
+  } catch {}
+
+  // Fallback: synchronous shim without top-level await
+  const shim::str = `const spec = (() => {\n`
+    + `  const mk = (lvl) => (...a) => (console[lvl] ? console[lvl](...a) : console.log(...a));\n`
+    + `  const input = async (q) => {\n`
+    + `    if (typeof window !== 'undefined' && typeof window.prompt === 'function') { return window.prompt(q) ?? ''; }\n`
+    + `    try { const rl = await import('node:readline/promises'); const { stdin, stdout } = await import('node:process');\n`
+    + `      const r = rl.createInterface({ input: stdin, output: stdout }); const ans = await r.question(q + ' '); r.close(); return ans; } catch { return ''; }\n`
+    + `  };\n`
+    + `  return { log: mk('log'), error: mk('error'), warn: mk('warn'), info: mk('info'), debug: mk('debug'), success: (...a) => console.log(...a), input };\n`
+    + `})();`
+  return `${shim}\n${js}`
+}
+
+// Rewrite console.* to spec.*
+func rewriteConsoleToSpec(js::str){
+  return js
+    .replace(/\bconsole\.log\s*\(/g, "spec.log(")
+    .replace(/\bconsole\.error\s*\(/g, "spec.error(")
+    .replace(/\bconsole\.warn\s*\(/g, "spec.warn(")
+    .replace(/\bconsole\.info\s*\(/g, "spec.info(")
+    .replace(/\bconsole\.debug\s*\(/g, "spec.debug(")
+}
+
+func parseFlags(arr::arr<str>) {
+  const flags::obj = {}
+  const rest::arr<str> = []
+  for (const a of arr) {
+    if (a === "--no-builtins") { flags.noBuiltins = true; continue }
+    if (a === "--migrate-to-spec" || a === "-migrate-to-spec") { flags.migrateToSpec = true; continue }
+    if (a === "--spectral-cdn") { flags.spectralCdn = true; continue }
+    rest.push(a)
+  }
+  return { flags, rest }
+}

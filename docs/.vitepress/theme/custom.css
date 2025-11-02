@@ -1,0 +1,161 @@
+/* Forzar tema oscuro siempre y desde el inicio */
+:root {
+  color-scheme: dark !important;
+}
+
+html {
+  color-scheme: dark !important;
+}
+
+html.dark,
+html:not(.light) {
+  color-scheme: dark !important;
+}
+
+/* Forzar variables de tema oscuro */
+:root {
+  --vp-c-bg: #1a1a1a !important;
+  --vp-c-bg-alt: #262626 !important;
+  --vp-c-bg-elv: #202020 !important;
+  --vp-c-bg-soft: #262626 !important;
+}
+
+/* Ocultar completamente el toggle del tema */
+.VPSwitchAppearance {
+  display: none !important;
+}
+
+/* Asegurar que el body tenga el fondo oscuro desde el inicio */
+body {
+  background-color: #1a1a1a !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+/* Asegurar que el header de VitePress esté siempre por encima */
+.VPNav {
+  z-index: 100 !important;
+}
+
+.VPNavBar {
+  z-index: 100 !important;
+}
+
+/* Asegurar que el sidebar también esté por encima */
+.VPSidebar {
+  z-index: 90 !important;
+}
+
+/* Header con tema oscuro siempre */
+.VPNav .VPNavBar {
+  backdrop-filter: blur(8px);
+  background: rgba(26, 26, 26, 0.95) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Asegurar que los elementos del roadmap no interfieran */
+.roadmap-hero {
+  position: relative;
+  z-index: 1;
+}
+
+/* Mejorar el contraste en el roadmap para tema oscuro */
+.roadmap-hero {
+  background: linear-gradient(135deg, #7ed957 0%, #6bbb48 50%, #7c2d12 100%) !important;
+}
+
+/* Ajustar colores de texto para mejor contraste */
+.roadmap-hero h1,
+.roadmap-hero p {
+  color: white !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Estilos para botones con iconos en la página principal */
+.VPHero .VPButton {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+/* Iconos específicos para cada botón usando los archivos en /public */
+.VPHero .VPButton[href="/roadmap"]::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  background-image: url('/icons/roadmap.svg');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  filter: brightness(0) invert(1);
+}
+
+.VPHero .VPButton[href*="github.com"]::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  background-image: url('/github-color.svg');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* DeltaScript brand overrides */
+:root {
+  --ds-brand: #7ed957;
+  --ds-brand-1: #7ed957; /* primary */
+  --ds-brand-2: #6bc94b; /* hover */
+  --ds-brand-3: #58b93f; /* active */
+}
+
+/* VitePress brand tokens */
+:root {
+  --vp-c-brand: var(--ds-brand-1);
+  --vp-c-brand-1: var(--ds-brand-1);
+  --vp-c-brand-2: var(--ds-brand-2);
+  --vp-c-brand-3: var(--ds-brand-3);
+}
+
+/* Buttons */
+.VPButton.brand {
+  background-color: var(--vp-c-brand-1) !important;
+  border-color: transparent !important;
+  color: #0a0a0a !important;
+}
+.VPButton.brand:hover {
+  background-color: var(--vp-c-brand-2) !important;
+}
+.VPButton.alt:hover {
+  color: var(--vp-c-brand-1) !important;
+}
+
+/* Links */
+a {
+  color: var(--vp-c-brand-1);
+}
+a:hover {
+  color: var(--vp-c-brand-2);
+}
+
+/* Hero accents */
+.VPHero .name,
+.VPHero .text {
+  color: #fff;
+}
+.VPHero .tagline {
+  color: rgba(255,255,255,0.8);
+}
+
+/* Sidebar active link */
+.VPSidebarItem.is-active > .item .link {
+  color: var(--vp-c-brand-1) !important;
+}
+
+.VPHero .VPButton[href*="npmjs.com"]::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  background-image: url('/npm-icon.svg');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
