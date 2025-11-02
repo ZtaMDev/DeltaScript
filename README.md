@@ -122,7 +122,7 @@ When running a single file, `dsc` compiles to a temporary `.mjs` and executes it
 The configuration file is a JSON‑like object. Example:
 
 ```ts
-{
+export default {
   module: 'cjs',
   outDir: 'dist',
   entry: 'src',
