@@ -153,13 +153,6 @@ async function validateTextDocument(textDocument) {
               c = mapParsedColumnToSource(srcLineText, c);
             } catch {}
           }
-          // Ignore generic Syntax error if it's likely due to a func header with ::ReturnType on this line
-          if (/syntax error/i.test(msgStr)) {
-            const srcLine = (text.split(/\r?\n/)[l] || '').trim();
-            if (lineLooksLikeFuncWithReturnType(srcLine)) {
-              continue;
-            }
-          }
           diagnostics.push({
             severity: DiagnosticSeverity.Error,
             range: { start: { line: l, character: c }, end: { line: l, character: c + 1 } },
@@ -205,13 +198,6 @@ async function validateTextDocument(textDocument) {
           const srcLineText = text.split(/\r?\n/)[line] || '';
           column = mapParsedColumnToSource(srcLineText, column);
         } catch {}
-      }
-      // Ignore generic Syntax error if it's likely due to a func header with ::ReturnType on this line
-      if (/syntax error/i.test(msgStr)) {
-        const srcLine = (text.split(/\r?\n/)[line] || '').trim();
-        if (lineLooksLikeFuncWithReturnType(srcLine)) {
-          continue;
-        }
       }
       const message = String(e?.message || 'Syntax error');
       diagnostics.push({
@@ -410,17 +396,6 @@ connection.listen();
 
 // Workspace scan on initialized
 connection.onInitialized(() => {
-  // Force refresh transpiler at startup to avoid any stale cache
-  (async () => {
-    try {
-      transpile = null;
-      await ensureTranspilerLoaded();
-      for (const doc of documents.all()) {
-        const diagnostics = await validateTextDocument(doc);
-        connection.sendDiagnostics({ uri: doc.uri, diagnostics });
-      }
-    } catch {}
-  })();
   scanWorkspace();
 });
 
@@ -892,13 +867,6 @@ function buildColumnMapForLine(srcLine) {
     i += 1;
   }
   return outToSrc;
-}
-
-// Heuristic: detect `func Name(args)::ReturnType` on a single line (optional async)
-function lineLooksLikeFuncWithReturnType(srcLine) {
-  try {
-    return /^(?:async\s+)?func\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*::\s*[^\{]+\{?\s*$/.test(srcLine);
-  } catch { return false; }
 }
 
 function uriToFsPath(uri) {

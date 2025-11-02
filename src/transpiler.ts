@@ -575,8 +575,19 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
     L = L.replace(/\bmaybe\b/g, "(Math.random() < 0.5)");
 
     // func -> function (strip optional ::ReturnType so acorn parses JS)
+    // Case A: brace on same line
     L = L.replace(/\basync\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{]+)\{/g, "async function $1($2){");
     L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{]+)\{/g, "function $1($2){");
+    // Case B: header ends here, brace on next line (preserve trailing comments)
+    L = L.replace(/^\s*async\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{\n]+)\s*(?:([\/]{2}.*))?$/,
+      (m, fn, args, _rt, com) => `async function ${fn}(${args})${com ? ' ' + com : ''}`);
+    L = L.replace(/^\s*func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{\n]+)\s*(?:([\/]{2}.*))?$/,
+      (m, fn, args, _rt, com) => `function ${fn}(${args})${com ? ' ' + com : ''}`);
+    // Case C: generic between ')' and '{' on same line (works regardless of leading text)
+    L = L.replace(/\)\s*::\s*[^\{\r\n]+(\s*\{)/g, ")$1");
+    // Case D: generic header ending the line (return type then EOL)
+    L = L.replace(/\)\s*::\s*[^\{\r\n]+(\s*$)/gm, ")$1");
+    // Generic func
     L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(/g, "function $1(");
 
     // call -> función normal (la verificación se hace en semantic pass)
@@ -734,7 +745,18 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
     });
     const declaredLine = sourceCode.slice(0, fd.index).split("\n").length;
     const returnType = retRaw ? (retRaw as SimpleType) : undefined;
-    funcs.set(fname, { name: fname, params, declaredLine, returnType });
+    // Compute column for '::' if present (1-based)
+    let returnTypeCol: number | undefined;
+    try {
+      const head = sourceCode.slice(fd.index, funcDeclRx.lastIndex);
+      const rel = head.indexOf('::');
+      if (rel >= 0) {
+        const abs = fd.index + rel;
+        const lastNl = sourceCode.lastIndexOf("\n", abs);
+        returnTypeCol = abs - (lastNl >= 0 ? lastNl : -1);
+      }
+    } catch {}
+    funcs.set(fname, { name: fname, params, declaredLine, returnType, returnTypeCol } as any);
   }
 
   // Also record plain function declarations from cleaned parse (no param types)
@@ -755,7 +777,7 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
   let inFunction = false;
   // Return type enforcement state
   let pendingFunctionName: string | null = null;
-  const funcContextStack: Array<{ name: string; expected?: SimpleType; hasValueReturn: boolean; startLine: number }>=[];
+  const funcContextStack: Array<{ name: string; expected?: SimpleType; hasValueReturn: boolean; sawReturnAttempt?: boolean; startLine: number; headerLine?: number; headerCol?: number }>=[];
   // Soporte para cabeceras multilínea (cuando '{' va en la línea siguiente)
   let pendingOpenScope: null | "function" | "class" | "block" = null;
 
@@ -812,7 +834,7 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
         const m = L.match(/^\s*(?:async\s+)?(?:func|function)\s+([A-Za-z_$][\w$]*)/);
         const fname = m ? m[1] : "";
         const fmeta = fname ? funcs.get(fname) : undefined;
-        funcContextStack.push({ name: fname, expected: fmeta?.returnType, hasValueReturn: false, startLine: lineNo });
+        funcContextStack.push({ name: fname, expected: fmeta?.returnType, hasValueReturn: false, sawReturnAttempt: false, startLine: lineNo, headerLine: fmeta?.declaredLine, headerCol: (fmeta as any)?.returnTypeCol });
       }
     } else if (classHeaderWithBrace) {
       scopeManager.enterScope('class');
@@ -840,7 +862,7 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
       if (pendingOpenScope === 'function') {
         const fname = pendingFunctionName || "";
         const fmeta = fname ? funcs.get(fname) : undefined;
-        funcContextStack.push({ name: fname, expected: fmeta?.returnType, hasValueReturn: false, startLine: lineNo });
+        funcContextStack.push({ name: fname, expected: fmeta?.returnType, hasValueReturn: false, startLine: lineNo, headerLine: fmeta?.declaredLine, headerCol: (fmeta as any)?.returnTypeCol });
         pendingFunctionName = null;
       }
       pendingOpenScope = null;
@@ -862,8 +884,10 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
               inFunction = false;
               // on function end, check missing return if required
               const ctx = funcContextStack.pop();
-              if (ctx && ctx.expected && String(ctx.expected) !== 'void' && !ctx.hasValueReturn) {
-                throw new CompileError(filePath, lineNo, 1, `Function '${ctx.name}' declares return type ${ctx.expected} but has no return`);
+              if (ctx && ctx.expected && String(ctx.expected) !== 'void' && !ctx.sawReturnAttempt) {
+                const dl = ctx.headerLine || lineNo;
+                const dc = ctx.headerCol || 1;
+                throw new CompileError(filePath, dl, dc, `Function '${ctx.name}' declares return type ${ctx.expected} but has no return`);
               }
             }
           }
@@ -911,13 +935,23 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
     };
 
     // Enforce return statement types when inside a function with declared return type
-    if (/^\s*return\b/.test(L)) {
+    // Detect 'return' anywhere on the line (supports single-line bodies)
+    if (/(^|[;{])\s*return\b/.test(L)) {
       const ctx = funcContextStack.length > 0 ? funcContextStack[funcContextStack.length - 1] : undefined;
       if (ctx && ctx.expected) {
-        const after = L.replace(/^\s*return\b/, "");
+        // Extract substring after the last 'return' token on this line
+        const retIdx = (() => {
+          const m = [...L.matchAll(/(^|[;{])\s*return\b/g)];
+          if (m.length === 0) return -1;
+          const last = m[m.length - 1];
+          return last.index! + last[0].length;
+        })();
+        const after = retIdx >= 0 ? L.slice(retIdx) : L;
         const exprText = cleanExpr(after);
         const hasValue = exprText.length > 0;
         const expected = String(ctx.expected);
+        // Mark that a return was attempted regardless of validity, to avoid duplicate missing-return
+        ctx.sawReturnAttempt = true;
         if (expected === 'void') {
           if (hasValue) {
             throw new CompileError(filePath, lineNo, 1, `Return type mismatch: function '${ctx.name}' expects void`);
@@ -1738,6 +1772,11 @@ export function transpileSpark(sourceCode: string, filePath = "<input>.sp"): { c
     if (outLineToSourceLine[i] == null) {
       outLineToSourceLine[i] = i + 1;
     }
+  }
+
+  // Si ya hay diagnósticos, devolver sin intentar parsear el JS final para evitar errores redundantes
+  if (diagnostics.length > 0) {
+    return { code: outCode, diagnostics };
   }
 
   // final parse check
