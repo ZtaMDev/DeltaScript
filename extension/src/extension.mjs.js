@@ -14,6 +14,9 @@ let clientlessRegistered = false;
 export function activate(context) {
   out = vscode.window.createOutputChannel('DeltaScript');
   out.appendLine('[DeltaScript] Activating extension');
+
+  out.appendLine('[DeltaScript] LanguageClient available: ' + !!LanguageClient);
+  out.appendLine('[DeltaScript] TransportKind available: ' + !!TransportKind);
   if (LanguageClient && TransportKind) {
     try {
       const serverModule = context.asAbsolutePath(path.join('server', 'server.mjs'));

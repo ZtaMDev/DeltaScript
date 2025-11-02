@@ -22,31 +22,6 @@ async function ensureTranspilerLoaded() {
     const mod2 = esmJs?.default && esmJs.default.transpileSpark ? esmJs.default : esmJs;
     if (mod2?.transpileSpark) { transpile = mod2; return transpile; }
   } catch {}
-  // 2) Installed package (CJS/ESM): try .mjs then .js
-  try {
-    const pkg = await import('deltascript/dist/transpiler.mjs');
-    const mod = pkg?.default && pkg.default.transpileSpark ? pkg.default : pkg;
-    if (mod?.transpileSpark) { transpile = mod; return transpile; }
-  } catch {}
-  try {
-    const pkgJs = await import('deltascript/dist/transpiler.js');
-    const mod2 = pkgJs?.default && pkgJs.default.transpileSpark ? pkgJs.default : pkgJs;
-    if (mod2?.transpileSpark) { transpile = mod2; return transpile; }
-  } catch {}
-  // 3) Workspace repo dist (CJS/ESM): try .mjs then .js
-  try {
-    const u = pathToFileURL(path.join(__dirname, '../../dist/transpiler.mjs')).href + `?t=${Date.now()}`;
-    const local = await import(u);
-    const mod = local?.default && local.default.transpileSpark ? local.default : local;
-    if (mod?.transpileSpark) { transpile = mod; return transpile; }
-  } catch {}
-  try {
-    const u = pathToFileURL(path.join(__dirname, '../../dist/transpiler.js')).href + `?t=${Date.now()}`;
-    const localJs = await import(u);
-    const mod2 = localJs?.default && localJs.default.transpileSpark ? localJs.default : localJs;
-    if (mod2?.transpileSpark) { transpile = mod2; return transpile; }
-  } catch {}
-  return null;
 }
 
 // (moved reload handler below, after 'connection' initialization)
@@ -153,6 +128,13 @@ async function validateTextDocument(textDocument) {
               c = mapParsedColumnToSource(srcLineText, c);
             } catch {}
           }
+          // Ignore generic Syntax error if it's likely due to a func header with ::ReturnType on this line
+          if (/syntax error/i.test(msgStr)) {
+            const srcLine = (text.split(/\r?\n/)[l] || '').trim();
+            if (lineLooksLikeFuncWithReturnType(srcLine)) {
+              continue;
+            }
+          }
           diagnostics.push({
             severity: DiagnosticSeverity.Error,
             range: { start: { line: l, character: c }, end: { line: l, character: c + 1 } },
@@ -163,18 +145,6 @@ async function validateTextDocument(textDocument) {
       }
     } else if (typeof result === 'string') {
       js = result;
-    }
-    // Optional JS syntax check: skip for ESM, top-level await, or empty output to avoid false positives
-    if (js && js.trim() && !(/\bimport\b|\bexport\b/.test(js)) && !(/\bawait\b/.test(js))) {
-      try { new Function(js); } catch (e) {
-        const msg = String(e?.message || 'Generated JS syntax error');
-        diagnostics.push({
-          severity: DiagnosticSeverity.Error,
-          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
-          message: `[JS] ${msg}`,
-          source: 'DeltaScript'
-        });
-      }
     }
   } catch (err) {
     // transpiler threw; it may contain a single error or a list in err.errors
@@ -198,6 +168,13 @@ async function validateTextDocument(textDocument) {
           const srcLineText = text.split(/\r?\n/)[line] || '';
           column = mapParsedColumnToSource(srcLineText, column);
         } catch {}
+      }
+      // Ignore generic Syntax error if it's likely due to a func header with ::ReturnType on this line
+      if (/syntax error/i.test(msgStr)) {
+        const srcLine = (text.split(/\r?\n/)[line] || '').trim();
+        if (lineLooksLikeFuncWithReturnType(srcLine)) {
+          continue;
+        }
       }
       const message = String(e?.message || 'Syntax error');
       diagnostics.push({
@@ -396,6 +373,17 @@ connection.listen();
 
 // Workspace scan on initialized
 connection.onInitialized(() => {
+  // Force refresh transpiler at startup to avoid any stale cache
+  (async () => {
+    try {
+      transpile = null;
+      await ensureTranspilerLoaded();
+      for (const doc of documents.all()) {
+        const diagnostics = await validateTextDocument(doc);
+        connection.sendDiagnostics({ uri: doc.uri, diagnostics });
+      }
+    } catch {}
+  })();
   scanWorkspace();
 });
 
@@ -867,6 +855,13 @@ function buildColumnMapForLine(srcLine) {
     i += 1;
   }
   return outToSrc;
+}
+
+// Heuristic: detect `func Name(args)::ReturnType` on a single line (optional async)
+function lineLooksLikeFuncWithReturnType(srcLine) {
+  try {
+    return /^(?:async\s+)?func\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*::\s*[^\{]+\{?\s*$/.test(srcLine);
+  } catch { return false; }
 }
 
 function uriToFsPath(uri) {

@@ -515,16 +515,12 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
         // maybe -> random boolean
         L = L.replace(/\bmaybe\b/g, "(Math.random() < 0.5)");
         // func -> function (strip optional ::ReturnType so acorn parses JS)
-        // Case A: brace on same line
-        L = L.replace(/\basync\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{]+)\{/g, "async function $1($2){");
-        L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{]+)\{/g, "function $1($2){");
-        // Case B: header ends here, brace on next line (preserve trailing comments)
-        L = L.replace(/^\s*async\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{\n]+)\s*(?:([\/]{2}.*))?$/gm, (m, fn, args, _rt, com) => `async function ${fn}(${args})${com ? ' ' + com : ''}`);
-        L = L.replace(/^\s*func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{\n]+)\s*(?:([\/]{2}.*))?$/gm, (m, fn, args, _rt, com) => `function ${fn}(${args})${com ? ' ' + com : ''}`);
-        // Case C: generic between ')' and '{' on same line (works regardless of leading text)
-        L = L.replace(/\)\s*::\s*[^\{\r\n]+(\s*\{)/g, ")$1");
-        // Case D: generic header ending the line (return type then EOL)
-        L = L.replace(/\)\s*::\s*[^\{\r\n]+(\s*$)/gm, ")$1");
+        // Case A: brace on same line - manejar cualquier tipo de return type
+        L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{]+?)\s*\{/g, "function $1($2){");
+        L = L.replace(/\basync\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{]+?)\s*\{/g, "async function $1($2){");
+        // Case B: header ends here, brace on next line - manejar cualquier tipo de return type
+        L = L.replace(/^\s*async\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{}\n]+)\s*(?:([\/]{2}.*))?$/, (m, fn, args, _rt, com) => `async function ${fn}(${args})${com ? ' ' + com : ''}`);
+        L = L.replace(/^\s*func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{}\n]+)\s*(?:([\/]{2}.*))?$/, (m, fn, args, _rt, com) => `function ${fn}(${args})${com ? ' ' + com : ''}`);
         // Generic func
         L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(/g, "function $1(");
         // call -> función normal (la verificación se hace en semantic pass)
@@ -714,7 +710,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
         }
     }
     // Pre-scan func declarations in original source (capture param types incl custom and optional return type)
-    const funcDeclRx = /\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:::\s*([^\{\n]+))?\s*\{/g;
+    const funcDeclRx = /\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:::\s*([^{}\n]+))?\s*\{/g;
     let fd;
     while ((fd = funcDeclRx.exec(sourceCode)) !== null) {
         const fname = fd[1];
@@ -798,8 +794,8 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                 continue;
             }
             // Detectar SI la línea abre un nuevo scope real (no por literales de objeto)
-            const funcHeaderWithBrace = /^\s*(?:async\s+)?(func|function)\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*[^\{]+)?\s*\{/.test(L);
-            const funcHeaderNoBrace = /^\s*(?:async\s+)?(func|function)\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*[^\{]+)?\s*$/.test(L);
+            const funcHeaderWithBrace = /^\s*(?:async\s+)?(func|function)\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*[^{]+)?\s*\{/.test(L);
+            const funcHeaderNoBrace = /^\s*(?:async\s+)?(func|function)\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*[^{}\n]+)?\s*$/.test(L);
             const classHeaderWithBrace = /^\s*(?:export\s+)?(?:default\s+)?class\s+[A-Za-z_$][\w$]*\s*\{/.test(L);
             const classHeaderNoBrace = /^\s*(?:export\s+)?(?:default\s+)?class\s+[A-Za-z_$][\w$]*\s*$/.test(L);
             const controlHeaderWithBrace = /^\s*(if|else|for|while|try|catch|finally|switch)\b[^\{]*\{/.test(L);
