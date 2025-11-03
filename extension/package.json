@@ -3,6 +3,7 @@
   "displayName": "DeltaScript",
   "description": "DeltaScript language support: syntax highlighting, LSP diagnostics, and file icon for .ds files.",
   "version": "1.0.8",
+  "keywords": ["deltascript", "language", "syntax highlighting", "typed superset", "lsp", "diagnostics", "interfaces", "classes", "return types", "mbool", "maybe", "transpiler", "esm"],
   "publisher": "ZtaMDev",
   "icon": "logo.png",
   "repository": {

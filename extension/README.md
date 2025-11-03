@@ -1,5 +1,9 @@
 # DeltaScript VS Code Extension
 
+[![Version](https://img.shields.io/visual-studio-marketplace/v/ZtaMDev.deltascript-vscode?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=ZtaMDev.deltascript-vscode)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/ZtaMDev.deltascript-vscode?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=ZtaMDev.deltascript-vscode)
+[![License](https://img.shields.io/github/license/ZtaMDev/DeltaScript?style=for-the-badge)](https://github.com/ZtaMDev/DeltaScript/blob/CrystalMain/LICENSE)
+
 Language support for [DeltaScript](https://www.npmjs.com/package/deltascript): syntax highlighting, inline diagnostics (syntax and types), completions, hovers with code previews, go to definition.
 
 ## Features
@@ -18,6 +22,10 @@ Language support for [DeltaScript](https://www.npmjs.com/package/deltascript): s
   - Keyword/tooltips for `mut`, `inmut`, `func`, `interface`, `spec.*`.
   - Code preview of symbol definitions (functions, classes, interfaces, variables).
 - Go to Definition, Document/Workspace Symbols, References, Rename, Signature Help.
+
+## Keywords
+
+DeltaScript, deltascript, ds, language support, syntax highlighting, typed superset, custom language, LSP, diagnostics, code frames, interfaces, classes, return types, mbool, maybe, spectral logs, spectrallogs, compile to JavaScript, transpiler, JavaScript superset, ESM
 
 ## Requirements
 
