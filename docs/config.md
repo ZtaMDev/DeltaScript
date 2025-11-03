@@ -11,7 +11,8 @@ export default {
   entry: 'src',
   include: ['src'],
   exclude: ['node_modules'],
-  builtins: true
+  builtins: true,
+  minify: false
 }
 ```
 
@@ -23,6 +24,7 @@ export default {
 - `include`: array of paths to include (relative or absolute). Optional.
 - `exclude`: array of paths to exclude. Optional.
 - `builtins`: enable SpectralLogs integration and console tips. Default `true`.
+- `minify`: when `true`, project builds are minified (same effect as passing `--minify` to `dsc build`).
 
 ## Tips
 

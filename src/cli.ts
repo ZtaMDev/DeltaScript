@@ -283,7 +283,8 @@ function runSingleFile(inFile: string, args: string[], flags: { noBuiltins?: boo
       let jsFile = jsFileBase;
       // Inject builtins into every module so spec is available cross-module
       if (builtinsEntry || migrateEntry) {
-        jsFile = injectSpectralImports(jsFile, !!flags.spectralCdn, process.cwd());
+        // Single-file run: force shim to avoid external package resolution in tempDir
+        jsFile = injectSpectralImports(jsFile, !!flags.spectralCdn, process.cwd(), /*forceShim*/ true);
       }
       // Only rewrite console->spec for entry file to avoid surprises
       if (absPath === inFile && migrateEntry) jsFile = rewriteConsoleToSpec(jsFile);
@@ -421,27 +422,29 @@ function countConsoleUsage(src: string): number {
 
 // Inject SpectralLogs integration: default is an auto shim that works in Node and Browser.
 // If useCdn is true, inject static CDN imports instead.
-function injectSpectralImports(js: string, useCdn = false, projectRoot: string = process.cwd()): string {
+function injectSpectralImports(js: string, useCdn = false, projectRoot: string = process.cwd(), forceShim = false): string {
   const hasExisting = /import\s+.*from\s+['\"]https:\/\/esm\.sh\/spectrallogs/.test(js)
     || /import\s+.*from\s+['\"]spectrallogs/.test(js)
     || /const\s+spec\s*=\s*\(\(\)\s*=>/.test(js);
   if (hasExisting) return js;
 
-  if (useCdn) {
+  if (!forceShim && useCdn) {
     const cdn1 = "import spec from \"https://esm.sh/spectrallogs\"";
     const cdn2 = "import specweb from \"https://esm.sh/spectrallogs/web\"";
     return `${cdn1}\n${cdn2}\n${js}`;
   }
 
   // If package exists, prefer static package imports (no TLA)
-  try {
-    const pkgPath = path.join(projectRoot, 'node_modules', 'spectrallogs', 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      const pkg1 = "import spec from 'spectrallogs'";
-      const pkg2 = "import specweb from 'spectrallogs/web'";
-      return `${pkg1}\n${pkg2}\n${js}`;
-    }
-  } catch {}
+  if (!forceShim) {
+    try {
+      const pkgPath = path.join(projectRoot, 'node_modules', 'spectrallogs', 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg1 = "import spec from 'spectrallogs'";
+        const pkg2 = "import specweb from 'spectrallogs/web'";
+        return `${pkg1}\n${pkg2}\n${js}`;
+      }
+    } catch {}
+  }
 
   // Fallback: synchronous shim without top-level await
   const shim = `const spec = (() => {\n`

@@ -130,12 +130,25 @@ class Counter {
   }
   inc() { this.count = this.count + 1 }
   add(n::num) { this.count = this.count + n }
+  toString()::str { return "Counter(" + String(this.count) + ")" }
 }
 
 let c::Counter = new Counter(2)
 c.inc()
 c.add(5)
+let s::str = c.toString()   // method return type is enforced
 ```
+
+### Method return types
+
+- Methods can declare `::ReturnType` just like functions. The compiler validates each `return` inside the method.
+- Calls to class methods use the declared return type for type inference, even when chained from `new Class(...).method()`.
+
+### Ternary inference and string concatenation
+
+- The compiler infers the type of `cond ? a : b` from its branches (not from the condition).
+- `+` concatenations that include a string literal or `.toString()` are inferred as `str`.
+- Common built‑ins are recognized during inference: `parseFloat/parseInt/Number → num`, `String/JSON.stringify → str`, `Boolean/Array.isArray → mbool`, `Math.* → num`.
 
 ## Control Flow
 

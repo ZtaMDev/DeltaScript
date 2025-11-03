@@ -81,10 +81,15 @@ dsc ./src/main.ds
 
 - `dsc init` — creates `dsk.config.ds` and ensures `src/` exists.
 - `dsc build` — transpiles `.ds` to `.js` (ESM) into `outDir`.
-- `dsc dev` — watch mode with debounce and concise logs.
-- `dsc <file.ds>` — transpile and run a single file immediately.
+  - `dsc dev` — watch mode with debounce and concise logs.
+  - `dsc <file.ds>` — transpile and run a single file immediately (bundles deps when possible).
 
-Useful flags: `--no-builtins`, `--migrate-to-spec`, `--spectral-cdn`.
+Useful flags: `--no-builtins`, `--migrate-to-spec`, `--spectral-cdn`, `--minify`.
+
+### Highlights
+
+- Class and function return types with `::ReturnType` are enforced (mismatches and missing returns reported).
+- Single-file runner bundles imported `.ds` and `.js` when esbuild is available.
 
 ## Links
 
