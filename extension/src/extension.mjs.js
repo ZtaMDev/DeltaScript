@@ -1,7 +1,7 @@
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import * as vscode from 'vscode';
-import { LanguageClient, TransportKind } from 'vscode-languageclient/node.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {any} */
@@ -11,37 +11,68 @@ let lspReady = false;
 let clientlessDisposables = [];
 let clientlessRegistered = false;
 
-export function activate(context) {
+export async function activate(context) {
   out = vscode.window.createOutputChannel('DeltaScript');
   out.appendLine('[DeltaScript] Activating extension');
+  try { out.show(true); } catch {}
+  // Dynamically import language client to avoid hard crash if missing at runtime
+  let LanguageClient = null;
+  let TransportKind = null;
+  try {
+    const lc = await import('vscode-languageclient/node.js');
+    LanguageClient = lc.LanguageClient;
+    TransportKind = lc.TransportKind;
+    out.appendLine('[DeltaScript] Loaded vscode-languageclient');
+  } catch (e) {
+    out.appendLine('[DeltaScript] Failed to load vscode-languageclient: ' + String(e && e.message || e));
+  }
 
   out.appendLine('[DeltaScript] LanguageClient available: ' + !!LanguageClient);
   out.appendLine('[DeltaScript] TransportKind available: ' + !!TransportKind);
-  if (LanguageClient && TransportKind) {
+  async function startLsp() {
+    if (!LanguageClient || !TransportKind) {
+      out.appendLine('[DeltaScript] Cannot start LSP: LanguageClient not available');
+      return false;
+    }
+    const serverModule = context.asAbsolutePath(path.join('server', 'server.mjs'));
+    out.appendLine('[DeltaScript] Resolving LSP server: ' + serverModule);
     try {
-      const serverModule = context.asAbsolutePath(path.join('server', 'server.mjs'));
-      const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
-
-      const serverOptions = {
-        run: { module: serverModule, transport: TransportKind.ipc },
-        debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions }
-      };
-
-      const clientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'deltascript' }],
-        synchronize: { fileEvents: vscode.workspace.createFileSystemWatcher('**/*.ds') }
-      };
-
-      out.appendLine('[DeltaScript] LSP server module: ' + serverModule);
+      const exists = fs.existsSync(serverModule);
+      out.appendLine('[DeltaScript] server.mjs exists: ' + exists);
+    } catch {}
+    const debugExecArgv = ['--nolazy', '--inspect=6009'];
+    const serverOptions = {
+      run: {
+        command: process.execPath,
+        args: [serverModule, '--stdio'],
+        options: { env: { ...process.env } },
+        transport: TransportKind.stdio
+      },
+      debug: {
+        command: process.execPath,
+        args: [...debugExecArgv, serverModule, '--stdio'],
+        options: { env: { ...process.env } },
+        transport: TransportKind.stdio
+      }
+    };
+    const trace = vscode.window.createOutputChannel('DeltaScript LSP Trace');
+    const clientOptions = {
+      documentSelector: [{ scheme: 'file', language: 'deltascript' }],
+      synchronize: { fileEvents: vscode.workspace.createFileSystemWatcher('**/*.ds') },
+      traceOutputChannel: trace,
+      outputChannel: out,
+      revealOutputChannelOn: 2 // RevealOnError
+    };
+    try {
       client = new LanguageClient('deltascript', 'DeltaScript Language Server', serverOptions, clientOptions);
       const disp = client.start();
       context.subscriptions.push(disp);
       out.appendLine('[DeltaScript] LSP client starting...');
       if (client && typeof client.onReady === 'function') {
+        try { client.onDidChangeState?.((e) => { out.appendLine('[DeltaScript] LSP state: ' + String(e?.newState)); }); } catch {}
         client.onReady().then(() => {
           lspReady = true;
           out.appendLine('[DeltaScript] LSP client ready');
-          // Dispose clientless providers to avoid duplicated hovers/completions
           try {
             for (const d of clientlessDisposables) { try { d.dispose?.(); } catch {} }
             clientlessDisposables = [];
@@ -49,24 +80,36 @@ export function activate(context) {
           } catch {}
         }).catch(e => {
           out.appendLine('[DeltaScript] LSP onReady error: ' + String(e && e.message || e));
-          // Fall back to clientless but keep client running
           try { if (!clientlessRegistered) { clientlessDisposables = registerClientlessFeatures(context); clientlessRegistered = true; } } catch {}
         });
-      } else {
-        // No onReady available; keep clientless providers active
-        out.appendLine('[DeltaScript] LSP client does not expose onReady; using fallback providers');
-        try { clientlessDisposables = registerClientlessFeatures(context); } catch {}
       }
+      return true;
     } catch (e) {
-      try { out.appendLine('[DeltaScript] Failed to start LSP: ' + String(e && e.message || e)); } catch {}
-      // Fallback to clientless providers if LSP start fails
-      try { clientlessDisposables = registerClientlessFeatures(context); } catch {}
+      out.appendLine('[DeltaScript] Failed to start LSP: ' + String(e && e.message || e));
+      return false;
+    }
+  }
+
+  if (LanguageClient && TransportKind) {
+    const started = await startLsp();
+    if (!started) {
+      try { clientlessDisposables = registerClientlessFeatures(context); clientlessRegistered = true; } catch {}
     }
   }
   // If LanguageClient is not available at all, use clientless providers
   if (!LanguageClient || !TransportKind) {
     try { if (!clientlessRegistered) { clientlessDisposables = registerClientlessFeatures(context); clientlessRegistered = true; } } catch {}
   }
+
+  // Commands for manual control and debugging in packaged builds
+  context.subscriptions.push(vscode.commands.registerCommand('deltascript.showLog', () => {
+    try { out?.show?.(true); } catch {}
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('deltascript.startServer', async () => {
+    try { out?.show?.(true); } catch {}
+    if (lspReady) { out.appendLine('[DeltaScript] LSP already running'); return; }
+    await startLsp();
+  }));
 }
 
 export function deactivate() {
@@ -100,7 +143,7 @@ function registerClientlessFeatures(context) {
       for (const t of TYPES) items.push(new vscode.CompletionItem(t, vscode.CompletionItemKind.TypeParameter));
       for (const m of SPEC_METHODS) items.push(new vscode.CompletionItem(`spec.${m}`, vscode.CompletionItemKind.Function));
       // Prior identifiers before cursor
-      try {6
+      try {
         const text = doc.getText();
         const upto = text.slice(0, doc.offsetAt(pos));
         const re = /[A-Za-z_][A-Za-z0-9_]*/g;

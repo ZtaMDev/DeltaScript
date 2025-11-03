@@ -2,7 +2,7 @@
   "name": "deltascript-vscode",
   "displayName": "DeltaScript",
   "description": "DeltaScript language support: syntax highlighting, LSP diagnostics, and file icon for .ds files.",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "ZtaMDev",
   "icon": "logo.png",
   "repository": {
@@ -15,7 +15,24 @@
   "categories": ["Programming Languages"],
   "type": "module",
   "main": "./src/extension.mjs.js",
+  "files": [
+    "src/**/*.js",
+    "server/**/*.mjs",
+    "server/**/*.js",
+    "server/utils/**/*.js",
+    "syntaxes/**/*.json",
+    "language-configuration.json",
+    "fileicons/**/*.json",
+    "fileicons/**/*.svg",
+    "logo.png",
+    "LICENSE",
+    "README.md"
+  ],
   "contributes": {
+    "commands": [
+      { "command": "deltascript.showLog", "title": "DeltaScript: Show Log" },
+      { "command": "deltascript.startServer", "title": "DeltaScript: Start Language Server" }
+    ],
     "languages": [
       {
         "id": "deltascript",
@@ -33,7 +50,6 @@
     ]
   },
   "activationEvents": [
-    "onLanguage:deltascript",
     "onStartupFinished"
   ],
   "scripts": {
@@ -43,7 +59,14 @@
   "dependencies": {
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
-    "deltascript": "^1.0.0"
+    "acorn": "^8.15.0",
+    "acorn-walk": "^8.3.4",
+    "chalk": "^5.3.0",
+    "escodegen": "^2.1.0",
+    "estraverse": "^5.3.0",
+    "fs-extra": "^11.2.0",
+    "magic-string": "^0.26.0",
+    "spectrallogs": "^0.2.2"
   },
   "devDependencies": {
     "vsce": "^2.15.0"

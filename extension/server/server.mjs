@@ -1,4 +1,10 @@
 import { createConnection, TextDocuments, ProposedFeatures, DiagnosticSeverity, CompletionItemKind, MarkupKind, SymbolKind } from 'vscode-languageserver/node.js';
+// Early boot log + error handlers
+try { console.error('[DeltaScript LSP] server boot'); } catch {}
+try {
+  process.on('uncaughtException', (e) => { try { console.error('[DeltaScript LSP] uncaughtException:', e && e.stack || String(e)); } catch {} });
+  process.on('unhandledRejection', (e) => { try { console.error('[DeltaScript LSP] unhandledRejection:', e && e.stack || String(e)); } catch {} });
+} catch {}
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { pathToFileURL, fileURLToPath } from 'url';
 import fs from 'fs';
@@ -9,19 +15,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let transpile;
 async function ensureTranspilerLoaded() {
   if (transpile) return transpile;
-  // 1) Bundled transpiler (ESM): try .mjs then .js
+  // Load bundled transpiler (compiled file: transpiler.js)
   try {
-    const u = pathToFileURL(path.join(__dirname, 'transpiler.mjs')).href + `?t=${Date.now()}`;
-    const esm = await import(u);
+    // Preflight: verify critical deps resolve from within the VSIX runtime
+    try { await import('acorn'); console.success('[DeltaScript LSP] preflight: acorn OK'); } catch (e) { try { console.success('[DeltaScript LSP] preflight: acorn MISSING:', e?.message || String(e)); } catch {} }
+    try { await import('vscode-languageserver-textdocument'); console.success('[DeltaScript LSP] preflight: textdocument OK'); } catch (e) { try { console.success('[DeltaScript LSP] preflight: textdocument MISSING:', e?.message || String(e)); } catch {} }
+    const u = new URL('./transpiler.js', import.meta.url).href;
+    try { console.success('[DeltaScript LSP] trying transpiler.js:', u); } catch {}
+    // Import with a watchdog to surface hangs
+    const esm = await Promise.race([
+      import(u),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('import timeout (5s) for transpiler.js')), 5000))
+    ]);
+    try { console.success('[DeltaScript LSP] transpiler.js imported, keys:', Object.keys(esm || {})); } catch {}
     const mod = esm?.default && esm.default.transpileSpark ? esm.default : esm;
-    if (mod?.transpileSpark) { transpile = mod; return transpile; }
-  } catch {}
-  try {
-    const u = pathToFileURL(path.join(__dirname, 'transpiler.js')).href + `?t=${Date.now()}`;
-    const esmJs = await import(u);
-    const mod2 = esmJs?.default && esmJs.default.transpileSpark ? esmJs.default : esmJs;
-    if (mod2?.transpileSpark) { transpile = mod2; return transpile; }
-  } catch {}
+    if (mod?.transpileSpark) { transpile = mod; try { console.success('[DeltaScript LSP] transpiler.js loaded OK'); } catch {}; return transpile; }
+    try { console.error('[DeltaScript LSP] transpiler.js loaded but missing transpileSpark export; mod keys:', Object.keys(mod || {})); } catch {}
+  } catch (e) {
+    try { console.error('[DeltaScript LSP] failed to load transpiler.js:', e && e.stack || String(e)); } catch {}
+  }
+  try { console.success('[DeltaScript LSP] no transpiler module found (expected transpiler.js)'); } catch {}
+  return null;
 }
 
 // (moved reload handler below, after 'connection' initialization)
@@ -97,6 +111,7 @@ async function validateTextDocument(textDocument) {
   const diagnostics = [];
   const tp = await ensureTranspilerLoaded();
   if (!tp || typeof tp.transpileSpark !== 'function') {
+    try { console.error('[DeltaScript LSP] transpiler not available or invalid export'); } catch {}
     return diagnostics; // no engine; avoid noisy diagnostics
   }
   const mapLine = buildInterfaceParsedToSourceMapper(text);
