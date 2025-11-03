@@ -1,4 +1,4 @@
-    import fs from "fs";
+import fs from "fs";
 import path from "path";
 import { parse as acornParse } from "acorn";
 import { c } from "./utils/colors.js";
