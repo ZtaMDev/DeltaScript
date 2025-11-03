@@ -441,7 +441,7 @@ func countConsoleUsage(src::str){
 // Inject SpectralLogs integration: default is an auto shim that works in Node and Browser.
 // If useCdn is true, inject static CDN imports instead.
 func injectSpectralImports(js::str, useCdn::mbool = false, projectRoot::str = process.cwd()) {
-  const hasExisting::mbool = /import\s+.*from\s+['"]https:\/\/esm\.sh\/spectrallogs/.test(js)
+  const hasExisting = /import\s+.*from\s+['"]https:\/\/esm\.sh\/spectrallogs/.test(js)
     || /import\s+.*from\s+['"]spectrallogs/.test(js)
     || /const\s+spec\s*=\s*\(\(\)\s*=>/.test(js)
   if (hasExisting) return js

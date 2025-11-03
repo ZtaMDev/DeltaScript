@@ -38,7 +38,7 @@ DeltaScript is a small language that compiles to JavaScript. It focuses on:
 - Great CLI ergonomics for building, watching, and running single files.
 - Friendly logging via SpectralLogs (optional, with shims and fallbacks).
 
-You write `.ds` files and use the `dsc` CLI to transpile them into `.js` (ESM). The CLI also supports running a single `.ds` directly.
+You write `.ds` files and use the `dsc` CLI to transpile them into `.js` (ESM). The CLI also supports running a single `.ds` directly and can bundle dependencies for convenient execution.
 
 ## Installation
 
@@ -101,12 +101,14 @@ When running a single file, `dsc` compiles to a temporary `.mjs` and executes it
 
 - `dsc init`
   - Creates `dsk.config.ds` (default config) and ensures `src/` exists.
-- `dsc build [--no-builtins] [--migrate-to-spec] [--spectral-cdn]`
+- `dsc build [--no-builtins] [--migrate-to-spec] [--minify] [--spectral-cdn]`
   - Transpile all `.ds` under `entry` into `.js` under `outDir`.
+  - `--minify` will minify emitted JS (best‑effort via esbuild if available).
 - `dsc dev [--no-builtins] [--migrate-to-spec] [--spectral-cdn]`
   - Watch mode with per-file debounce and concise logs.
 - `dsc <file.ds> [args...] [--no-builtins] [--migrate-to-spec] [--spectral-cdn]`
   - Transpile a single `.ds` and execute it immediately using a temp `.mjs`.
+  - When possible, the CLI bundles the entry for execution (includes imported `.js` and `.ds`).
 
 ### Flags
 
@@ -124,7 +126,8 @@ export default {
   entry: 'src',
   include: ['src'],
   exclude: ['node_modules'],
-  builtins: true
+  builtins: true,
+  minify: false
 }
 ```
 
@@ -132,6 +135,7 @@ export default {
 - `outDir`: output folder for `.js` files.
 - `include`/`exclude`: path filters.
 - `builtins`: enables SpectralLogs integration and gentle tips.
+- `minify`: when true, builds are minified (same effect as `--minify`).
 
 ## Language basics
 
@@ -186,9 +190,15 @@ Highlights:
       this.count::num = initial
     }
     increment() { this.count = this.count + 1 }
+    toString()::str { return "Counter(" + String(this.count) + ")" }
   }
   let c::Counter = new Counter(2)
+  let s::str = c.toString() // class method return type is enforced
   ```
+
+- Class/Function return types with `::ReturnType` are enforced:
+  - Mismatched return expressions report diagnostics.
+  - Missing `return` when a non-void is declared is reported.
 
 - Control flow:
   ```ts
@@ -297,6 +307,12 @@ See [Examples](https://ztamdev.github.io/DeltaScript/examples) for complete samp
 
 - Emitted JS is ESM. In project builds it writes `.js` to `outDir`.
 - Single-file runs compile to a temporary `.mjs` and execute via Node, preserving interactivity (e.g., `await spec.input(...)`).
+- Single-file runner attempts to bundle dependencies (both `.ds` and `.js`) for convenience using esbuild, when available.
+
+### Importing JavaScript from DeltaScript
+
+- You can import `.js` modules from `.ds` files. In project builds they are preserved.
+- In single-file runs, the runner bundles imported `.js` along with transpiled `.ds` to a single executable module when possible.
 - Watch mode (`dsc dev`) recompiles changed files with debounce and concise output.
 
 ## License

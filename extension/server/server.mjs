@@ -127,10 +127,6 @@ async function validateTextDocument(textDocument) {
       if (Array.isArray(result.diagnostics)) {
         for (const d of result.diagnostics) {
           const msgStr0 = String(d?.message || '');
-          // Drop JS syntax errors reported by transpiler if output is ESM
-          if (/Emitted JS Syntax error/i.test(msgStr0) && /\b(import|export)\b/.test(js || '')) {
-            continue;
-          }
           const rawL = Math.max(1, Number(d?.line ?? 1));
           const msgStr = msgStr0;
           const applyOffset = /syntax error/i.test(msgStr) && !/\(mapped\)/i.test(msgStr);
@@ -142,13 +138,6 @@ async function validateTextDocument(textDocument) {
               const srcLineText = text.split(/\r?\n/)[l] || '';
               c = mapParsedColumnToSource(srcLineText, c);
             } catch {}
-          }
-          // Ignore generic Syntax error if it's likely due to a func header with ::ReturnType on this line
-          if (/syntax error/i.test(msgStr)) {
-            const srcLine = (text.split(/\r?\n/)[l] || '').trim();
-            if (lineLooksLikeFuncWithReturnType(srcLine)) {
-              continue;
-            }
           }
           diagnostics.push({
             severity: DiagnosticSeverity.Error,
@@ -167,13 +156,6 @@ async function validateTextDocument(textDocument) {
     for (const e of list) {
       const rawL = Math.max(1, Number(e?.line ?? 1));
       const msgStr = String(e?.message || '');
-      // Drop JS syntax errors reported by transpiler if the source is ESM-ish
-      if (/Emitted JS Syntax error/i.test(msgStr)) {
-        const src = textDocument.getText();
-        if (/\b(import|export)\b/.test(src)) {
-          continue;
-        }
-      }
       const applyOffset = /syntax error/i.test(msgStr) && !/\(mapped\)/i.test(msgStr);
       const mapped = applyOffset ? mapLine(rawL) : rawL;
       const line = Math.max(0, mapped - 1);
@@ -184,13 +166,6 @@ async function validateTextDocument(textDocument) {
           column = mapParsedColumnToSource(srcLineText, column);
         } catch {}
       }
-      // Ignore generic Syntax error if it's likely due to a func header with ::ReturnType on this line
-      if (/syntax error/i.test(msgStr)) {
-        const srcLine = (text.split(/\r?\n/)[line] || '').trim();
-        if (lineLooksLikeFuncWithReturnType(srcLine)) {
-          continue;
-        }
-      }
       const message = String(e?.message || 'Syntax error');
       diagnostics.push({
         severity: DiagnosticSeverity.Error,
@@ -200,9 +175,7 @@ async function validateTextDocument(textDocument) {
       });
     }
   }
-  // Suppress noisy redeclaration diagnostics; keep all others
-  const filtered = diagnostics.filter(d => !/Redeclaration of variable .* in the same scope/i.test(String(d?.message || '')));
-  return filtered;
+  return diagnostics;
 }
 
 // Build a function that adjusts line numbers to account for removed interface blocks

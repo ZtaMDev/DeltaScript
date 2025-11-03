@@ -5,6 +5,7 @@ import os from "os";
 import { spawn } from "child_process";
 import chalk from "chalk";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 import { transpileFile, transpileSpark } from "./transpiler.js";
 import { loadConfig } from "./config.js";
 import { c } from "./utils/colors.js";
@@ -52,7 +53,8 @@ if (!handled) switch (cmd) {
   entry: 'src',
   include: ['src'],
   exclude: ['node_modules'],
-  builtins: true
+  builtins: true,
+  minify: false
 }`, "utf8");
 
     console.log(c.success("dsk.config.ds created successfully."));
@@ -104,13 +106,16 @@ if (!handled) switch (cmd) {
         const builtins = flags.noBuiltins ? false : builtinsCfg;
         const migrate = !!flags.migrateToSpec;
         // SpectralLogs integration: auto-prepend imports when builtins or migrate
+        const shouldMinify = !!(flags.minify || (config as any)?.minify === true);
         if (builtins || migrate) {
           const injected = injectSpectralImports(js, !!flags.spectralCdn, process.cwd());
+          const toWrite = (cmd === 'build' && shouldMinify) ? tryMinify(injected, process.cwd()) : injected;
           fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-          fs.writeFileSync(outputPath, injected, "utf8");
+          fs.writeFileSync(outputPath, toWrite, "utf8");
         } else {
+          const toWrite = (cmd === 'build' && shouldMinify) ? tryMinify(js, process.cwd()) : js;
           fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-          fs.writeFileSync(outputPath, js, "utf8");
+          fs.writeFileSync(outputPath, toWrite, "utf8");
         }
         // Optional migration from console.* to spec.*
         if (migrate) {
@@ -182,7 +187,7 @@ if (!handled) switch (cmd) {
     console.log(c.bold("DeltaScript CLI"));
     console.log(c.gray("Flags:"));
     console.log("    --no-builtins          → disable auto imports and console tip (overrides config)");
-    console.log("    --migrate-to-spec      → rewrite console.* calls to spec.* during compilation");
+    console.log("    --minify               → minify emitted JS (build only)");
     console.log("    --spectral-cdn         → inject CDN imports (esm.sh) instead of node package imports");
     console.log("    -v, --version          → print DeltaScript version");
     console.log("  dsc init                 → create base configuration (dsk.config.ds)");
@@ -288,11 +293,22 @@ function runSingleFile(inFile: string, args: string[], flags: { noBuiltins?: boo
     // Entry is executed as .mjs to allow top-level await; re-write extension for entry
     const entryRel = path.relative(entryDir, inFile).replace(/\.ds$/, ".mjs");
     outJsPath = path.join(tempDir, entryRel);
-    // Ensure .mjs exists by copying .js sibling
     const entryJsPath = outJsPath.replace(/\.mjs$/, ".js");
     try { fs.copyFileSync(entryJsPath, outJsPath); } catch {}
+    let runPath = outJsPath;
+    try {
+      const require = createRequire(import.meta.url);
+      let esb;
+      try { esb = require(path.join(process.cwd(), 'node_modules', 'esbuild')); } catch {}
+      if (!esb) { try { esb = require('esbuild'); } catch {} }
+      if (esb && typeof esb.buildSync === 'function') {
+        const bundleOut = path.join(tempDir, 'bundle.mjs');
+        esb.buildSync({ entryPoints: [outJsPath], outfile: bundleOut, bundle: true, platform: 'node', format: 'esm', sourcemap: false });
+        runPath = bundleOut;
+      }
+    } catch {}
 
-    const child = spawn(process.execPath, [outJsPath, ...args], { stdio: "inherit", cwd: tempDir || process.cwd() });
+    const child = spawn(process.execPath, [runPath, ...args], { stdio: "inherit", cwd: tempDir || process.cwd() });
 
     let exiting = false;
     const onExit = (code?: number | null) => {
@@ -450,14 +466,33 @@ function rewriteConsoleToSpec(js: string): string {
     .replace(/\bconsole\.debug\s*\(/g, 'spec.debug(');
 }
 
-function parseFlags(arr: string[]): { flags: { noBuiltins?: boolean; migrateToSpec?: boolean; spectralCdn?: boolean }, rest: string[] } {
-  const flags: { noBuiltins?: boolean; migrateToSpec?: boolean; spectralCdn?: boolean } = {};
+function parseFlags(arr: string[]): { flags: { noBuiltins?: boolean; migrateToSpec?: boolean; spectralCdn?: boolean; minify?: boolean }, rest: string[] } {
+  const flags: { noBuiltins?: boolean; migrateToSpec?: boolean; spectralCdn?: boolean; minify?: boolean } = {};
   const rest: string[] = [];
   for (const a of arr) {
     if (a === '--no-builtins') { flags.noBuiltins = true; continue; }
     if (a === '--migrate-to-spec' || a === '-migrate-to-spec') { flags.migrateToSpec = true; continue; }
     if (a === '--spectral-cdn') { flags.spectralCdn = true; continue; }
+    if (a === '--minify') { flags.minify = true; continue; }
     rest.push(a);
   }
   return { flags, rest };
+}
+
+// Best-effort minifier using esbuild if available
+function tryMinify(js: string, projectRoot: string): string {
+  try {
+    const require = createRequire(import.meta.url);
+    // Prefer local esbuild in project
+    let esb;
+    try { esb = require(path.join(projectRoot, 'node_modules', 'esbuild')); } catch {}
+    if (!esb) {
+      try { esb = require('esbuild'); } catch {}
+    }
+    if (esb && typeof esb.transformSync === 'function') {
+      const out = esb.transformSync(js, { minify: true, target: 'es2020', format: 'esm' });
+      return out.code || js;
+    }
+  } catch {}
+  return js;
 }

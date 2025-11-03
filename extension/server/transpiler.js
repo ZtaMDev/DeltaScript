@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { parse as acornParse } from "acorn";
 import { c } from "./utils/colors.js";
+import chalk from "chalk";
 class CompileError extends Error {
     file;
     line;
@@ -114,6 +115,12 @@ function inferTypeFromExpr(expr, vars, interfaces) {
         return "num";
     if (isMboolLiteral(s))
         return "mbool";
+    // Heuristics: .toString() => str
+    if (/\.toString\s*\(\s*\)\s*$/.test(s))
+        return 'str';
+    // Heuristics: string concatenations => str
+    if (/\+/.test(s) && (/["'`]/.test(s) || /\.toString\s*\(\s*\)/.test(s)))
+        return 'str';
     if (s.startsWith("["))
         return "arr";
     if (s.startsWith("{"))
@@ -416,6 +423,12 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
     }
     // --- 0) Extract interface blocks safely and remove them from the parsing source ---
     const interfaces = new Map();
+    // Type system additions: aliases, reserved, builtins
+    const typeAliases = new Map();
+    const reservedTypeNames = new Set([
+        'func', 'function', 'class', 'mut', 'inmut', 'return', 'if', 'else', 'for', 'while', 'try', 'catch', 'finally', 'switch', 'let', 'const', 'var', 'new', 'throw', 'import', 'export', 'default', 'extends', 'implements', 'constructor', 'async', 'await', 'interface', 'type'
+    ]);
+    const builtinTypes = new Set(['str', 'num', 'mbool', 'arr', 'obj', 'void']);
     let work = sourceCode;
     const ifaceKeywordRx = /interface\s+([A-Za-z_$][\w$]*)\s*\{/g;
     let im;
@@ -481,6 +494,21 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
         const block = interfaceBlocks[i];
         cleanedWork = cleanedWork.slice(0, block.start) + cleanedWork.slice(block.end);
     }
+    // --- 0.1) Extract simple type aliases: type Name = <Type> ; ---
+    const typeRx = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*([^;\n]+)\s*;?/g;
+    let tm;
+    while ((tm = typeRx.exec(sourceCode)) !== null) {
+        const name = tm[1];
+        const rhs = tm[2].trim();
+        const declLine = sourceCode.slice(0, tm.index).split("\n").length;
+        if (reservedTypeNames.has(name) || builtinTypes.has(name)) {
+            throw new CompileError(filePath, declLine, 1, `Invalid type alias name '${name}': reserved`);
+        }
+        if (interfaces.has(name)) {
+            throw new CompileError(filePath, declLine, 1, `Invalid type alias '${name}': conflicts with interface`);
+        }
+        typeAliases.set(name, rhs);
+    }
     // Para parse-phase usamos el código sin interfaces
     const parseLines = cleanedWork.split(/\r?\n/);
     // --- 1) Preprocess parseLines into cleanedForParseLines (makes code parseable) ---
@@ -509,19 +537,29 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
             const spec = (/^(\.|\/|[A-Za-z]:\\)/.test(p) ? p : `./${p}`) + '.js';
             return `import ${q}${spec}${q}`;
         });
+        // Strip type alias declarations entirely to keep JS parseable
+        if (/^\s*type\s+([A-Za-z_$][\w$]*)\s*=/.test(L)) {
+            cleanedForParseLines.push('');
+            continue;
+        }
         // remove inline ::types (x::Type -> x)
         L = L.replace(/([A-Za-z_$][\w$]*)::([A-Za-z_$<>\[\]]+)/g, "$1");
         // maybe -> random boolean
         L = L.replace(/\bmaybe\b/g, "(Math.random() < 0.5)");
         // func -> function (strip optional ::ReturnType so acorn parses JS)
         // Case A: brace on same line - manejar cualquier tipo de return type
-        L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{]+?)\s*\{/g, "function $1($2){");
-        L = L.replace(/\basync\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{]+?)\s*\{/g, "async function $1($2){");
+        L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{}]+?)\s*\{/g, "function $1($2){");
+        L = L.replace(/\basync\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{}]+?)\s*\{/g, "async function $1($2){");
         // Case B: header ends here, brace on next line - manejar cualquier tipo de return type
         L = L.replace(/^\s*async\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{}\n]+)\s*(?:([\/]{2}.*))?$/, (m, fn, args, _rt, com) => `async function ${fn}(${args})${com ? ' ' + com : ''}`);
         L = L.replace(/^\s*func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^{}\n]+)\s*(?:([\/]{2}.*))?$/, (m, fn, args, _rt, com) => `function ${fn}(${args})${com ? ' ' + com : ''}`);
         // Generic func
         L = L.replace(/\bfunc\s+([A-Za-z_$][\w$]*)\s*\(/g, "function $1(");
+        // Strip class method ::ReturnType so acorn parses class bodies
+        // Case A: brace on same line
+        L = L.replace(/^\s*((?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?(?:constructor|[A-Za-z_$][\w$]*)\s*\([^)]*\))\s*::\s*([^{}\n]+)\s*\{/, (m, head) => `${head} {`);
+        // Case B: header ends here, brace on next line
+        L = L.replace(/^\s*((?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?(?:constructor|[A-Za-z_$][\w$]*)\s*\([^)]*\))\s*::\s*([^{}\n]+)\s*(?:([\/]{2}.*))?$/, (m, head, _rt, com) => `${head}${com ? ' ' + com : ''}`);
         // call -> función normal (la verificación se hace en semantic pass)
         L = L.replace(/\bcall\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/g, (_m, fname, args) => {
             if (args && args.trim())
@@ -581,6 +619,42 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
         diagnostics.push({ line, column: loc.column ?? 0, message: `Syntax error (mapped): ${err.message}` });
         return { code: "", diagnostics };
     }
+    // Helper to validate that a referenced type exists and is allowed
+    function validateTypeRef(typeStr, lineNo, col) {
+        if (!typeStr)
+            return;
+        const t = String(typeStr).trim();
+        // Allow unions: A | B | "literal"
+        if (t.includes('|')) {
+            const parts = t.split('|').map(s => s.trim()).filter(Boolean);
+            for (const p of parts)
+                validateTypeRef(p, lineNo, col);
+            return;
+        }
+        // Allow string literals as types in unions (e.g., "ok" | "err")
+        if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))
+            return;
+        // Array generic arr<T>
+        const mt = t.match(/^arr<(.+)>$/);
+        if (mt) {
+            validateTypeRef(mt[1].trim(), lineNo, col);
+            return;
+        }
+        // Builtins
+        if (builtinTypes.has(t))
+            return;
+        // Interfaces
+        if (interfaces.has(t))
+            return;
+        // Type aliases
+        if (typeAliases.has(t))
+            return;
+        // Reserved
+        if (reservedTypeNames.has(t)) {
+            throw new CompileError(filePath, lineNo, col, `Invalid type reference '${t}': reserved keyword`);
+        }
+        throw new CompileError(filePath, lineNo, col, `Unknown type '${t}'`);
+    }
     // --- 3) Semantic pass line-by-line on the ORIGINAL source (origLines) ---
     const outLines = [];
     const outLineToSourceLine = [];
@@ -594,6 +668,8 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
     const scopeManager = new ScopeManager();
     const funcs = new Map();
     const calledViaCall = new Map();
+    // Class -> (method -> returnType)
+    const classMethods = new Map();
     // --- helpers to validate object literal types against interface field specs (safe/minimal) ---
     function parseObjectProps(objLiteral) {
         let content = extractObjectContent(objLiteral);
@@ -673,22 +749,43 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
             (exprTrim.startsWith("'") && exprTrim.endsWith("'")) ||
             (exprTrim.startsWith('`') && exprTrim.endsWith('`')));
         const stringValue = isStringLiteral ? exprTrim.slice(1, -1) : null;
+        // heuristic: concatenations with strings or .toString() are strings
+        const looksLikeStringConcat = /\+/.test(exprTrim) && (/["'`]/.test(exprTrim) || /\.toString\s*\(\s*\)/.test(exprTrim));
+        const inferredEff = looksLikeStringConcat ? 'str' : inferred;
+        const resolveAlias = (name) => {
+            const n = name.trim();
+            if (typeAliases.has(n)) {
+                const rhs = String(typeAliases.get(n) || '').trim();
+                if (!rhs)
+                    return [n];
+                if (rhs.includes('|'))
+                    return rhs.split('|').map(s => s.trim());
+                return [rhs];
+            }
+            return [n];
+        };
         const checkOne = (opt) => {
+            // expand aliases recursively (simple 1-level union expansion)
+            const expanded = resolveAlias(opt);
+            if (expanded.length > 1) {
+                return expanded.some(e => checkOne(e));
+            }
+            const t = expanded[0];
             // literal string option
-            if ((opt.startsWith('"') && opt.endsWith('"')) || (opt.startsWith("'") && opt.endsWith("'"))) {
-                const lit = opt.slice(1, -1);
+            if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+                const lit = t.slice(1, -1);
                 return stringValue !== null && stringValue === lit;
             }
             // arrays (arr<T>)
-            if (/^arr<[^>]+>$/.test(opt)) {
-                return inferred === 'arr' || isArrayLiteral;
+            if (/^arr<[^>]+>$/.test(t)) {
+                return inferredEff === 'arr' || isArrayLiteral;
             }
             // primitives
-            if (opt === 'arr' || opt === 'obj' || opt === 'str' || opt === 'num' || opt === 'mbool') {
-                return inferred === opt;
+            if (t === 'arr' || t === 'obj' || t === 'str' || t === 'num' || t === 'mbool') {
+                return inferredEff === t;
             }
             // interface or alias name (treat object literals as compatible)
-            return inferred === opt || inferred === 'obj' || inferred === null;
+            return inferredEff === t || inferredEff === 'obj' || inferredEff === null;
         };
         for (const opt of options) {
             if (checkOne(opt))
@@ -707,6 +804,331 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                 throw new CompileError(filePath, lineNo, 1, `Interface type error: field '${p.key}' of '${varName}' expected ${expected}`);
             }
         }
+    }
+    // Deep RHS expression analyzer (top-level '+' splits, literals, identifiers, function return types, .toString())
+    function splitTopLevel(expr, sep) {
+        const s = String(expr ?? '');
+        const out = [];
+        let cur = '';
+        let depthP = 0, depthB = 0, depthC = 0;
+        let inStr = false, strCh = '';
+        let inTpl = false;
+        for (let i = 0; i < s.length; i++) {
+            const ch = s[i];
+            if (!inStr && ch === '`') {
+                inTpl = !inTpl;
+                cur += ch;
+                continue;
+            }
+            if (!inTpl && (ch === '"' || ch === "'")) {
+                if (!inStr) {
+                    inStr = true;
+                    strCh = ch;
+                    cur += ch;
+                    continue;
+                }
+                else if (inStr && ch === strCh && s[i - 1] !== '\\') {
+                    inStr = false;
+                    cur += ch;
+                    continue;
+                }
+            }
+            if (inStr || inTpl) {
+                cur += ch;
+                continue;
+            }
+            if (ch === '(') {
+                depthP++;
+                cur += ch;
+                continue;
+            }
+            if (ch === ')') {
+                depthP--;
+                cur += ch;
+                continue;
+            }
+            if (ch === '[') {
+                depthB++;
+                cur += ch;
+                continue;
+            }
+            if (ch === ']') {
+                depthB--;
+                cur += ch;
+                continue;
+            }
+            if (ch === '{') {
+                depthC++;
+                cur += ch;
+                continue;
+            }
+            if (ch === '}') {
+                depthC--;
+                cur += ch;
+                continue;
+            }
+            if (depthP === 0 && depthB === 0 && depthC === 0 && ch === sep) {
+                out.push(cur.trim());
+                cur = '';
+                continue;
+            }
+            cur += ch;
+        }
+        if (cur.trim().length)
+            out.push(cur.trim());
+        return out;
+    }
+    function stripParens(expr) {
+        let s = String(expr ?? '').trim();
+        while (s.startsWith('(') && s.endsWith(')')) {
+            let bal = 0, ok = true;
+            for (let i = 0; i < s.length; i++) {
+                const ch = s[i];
+                if (ch === '(')
+                    bal++;
+                else if (ch === ')')
+                    bal--;
+                if (bal === 0 && i < s.length - 1) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok)
+                break;
+            s = s.slice(1, -1).trim();
+        }
+        return s;
+    }
+    // Parse top-level ternary: cond ? a : b
+    function parseTopLevelTernary(s) {
+        const src = String(s ?? '');
+        let depthP = 0, depthB = 0, depthC = 0;
+        let inStr = false, strCh = '';
+        let inTpl = false;
+        let qIdx = -1, colonIdx = -1;
+        for (let i = 0; i < src.length; i++) {
+            const ch = src[i];
+            if (!inStr && ch === '`') {
+                inTpl = !inTpl;
+                continue;
+            }
+            if (!inTpl && (ch === '"' || ch === "'")) {
+                if (!inStr) {
+                    inStr = true;
+                    strCh = ch;
+                    continue;
+                }
+                else if (inStr && ch === strCh && src[i - 1] !== '\\') {
+                    inStr = false;
+                    continue;
+                }
+            }
+            if (inStr || inTpl)
+                continue;
+            if (ch === '(') {
+                depthP++;
+                continue;
+            }
+            if (ch === ')') {
+                depthP--;
+                continue;
+            }
+            if (ch === '[') {
+                depthB++;
+                continue;
+            }
+            if (ch === ']') {
+                depthB--;
+                continue;
+            }
+            if (ch === '{') {
+                depthC++;
+                continue;
+            }
+            if (ch === '}') {
+                depthC--;
+                continue;
+            }
+            if (depthP === 0 && depthB === 0 && depthC === 0) {
+                if (ch === '?' && qIdx === -1) {
+                    const prev = src[i - 1] || '';
+                    const next = src[i + 1] || '';
+                    // ignore optional chaining '?.' and nullish '??'
+                    if (next === '.' || next === '?' || prev === '?') {
+                        // skip
+                    }
+                    else {
+                        qIdx = i;
+                    }
+                }
+                else if (ch === ':' && qIdx !== -1) {
+                    colonIdx = i;
+                    break;
+                }
+            }
+        }
+        if (qIdx !== -1 && colonIdx !== -1) {
+            const cond = src.slice(0, qIdx).trim();
+            const whenTrue = src.slice(qIdx + 1, colonIdx).trim();
+            const whenFalse = src.slice(colonIdx + 1).trim();
+            return { cond, whenTrue, whenFalse };
+        }
+        return null;
+    }
+    function analyzeExprType(expr, accessibleVars) {
+        const s0 = stripParens(expr);
+        if (!s0)
+            return null;
+        // Direct maybe/bool literals
+        if (s0 === 'maybe' || s0 === 'true' || s0 === 'false')
+            return 'mbool';
+        // Ternary expressions: infer from branches, not condition (do this BEFORE boolean heuristics)
+        const tern = parseTopLevelTernary(s0);
+        if (tern) {
+            const tA = analyzeExprType(tern.whenTrue, accessibleVars);
+            const tB = analyzeExprType(tern.whenFalse, accessibleVars);
+            if (tA && tB) {
+                if (tA === tB)
+                    return tA;
+                if (tA === 'str' || tB === 'str')
+                    return 'str';
+                if (tA === 'arr' || tB === 'arr')
+                    return 'arr';
+                return tA ?? tB;
+            }
+            return tA ?? tB ?? null;
+        }
+        // Top-level comparisons imply mbool (do NOT classify &&/|| as boolean; they yield an operand)
+        const isTopLevelBool = (() => {
+            const s = String(s0);
+            let depthP = 0, depthB = 0, depthC = 0;
+            let inStr = false, strCh = '';
+            let inTpl = false;
+            for (let i = 0; i < s.length; i++) {
+                const ch = s[i];
+                if (!inStr && ch === '`') {
+                    inTpl = !inTpl;
+                    continue;
+                }
+                if (!inTpl && (ch === '"' || ch === "'")) {
+                    if (!inStr) {
+                        inStr = true;
+                        strCh = ch;
+                        continue;
+                    }
+                    else if (inStr && ch === strCh && s[i - 1] !== '\\') {
+                        inStr = false;
+                        continue;
+                    }
+                }
+                if (inStr || inTpl)
+                    continue;
+                if (ch === '(') {
+                    depthP++;
+                    continue;
+                }
+                if (ch === ')') {
+                    depthP--;
+                    continue;
+                }
+                if (ch === '[') {
+                    depthB++;
+                    continue;
+                }
+                if (ch === ']') {
+                    depthB--;
+                    continue;
+                }
+                if (ch === '{') {
+                    depthC++;
+                    continue;
+                }
+                if (ch === '}') {
+                    depthC--;
+                    continue;
+                }
+                if (depthP === 0 && depthB === 0 && depthC === 0) {
+                    // detect comparison operators at top-level
+                    const two = s.slice(i, i + 2);
+                    const three = s.slice(i, i + 3);
+                    if (three === '===' || three === '!==' || two === '==' || two === '!=' || two === '>=' || two === '<=' || ch === '<' || ch === '>') {
+                        return true;
+                    }
+                    if (ch === '!') {
+                        // unary not at top-level also implies boolean expression
+                        return true;
+                    }
+                }
+            }
+            return false;
+        })();
+        if (isTopLevelBool)
+            return 'mbool';
+        const simple = inferTypeFromExpr(s0, accessibleVars, interfaces);
+        if (simple)
+            return simple;
+        // Known native/global functions
+        if (/^parseFloat\s*\(/.test(s0))
+            return 'num';
+        if (/^parseInt\s*\(/.test(s0))
+            return 'num';
+        if (/^Number\s*\(/.test(s0))
+            return 'num';
+        if (/^String\s*\(/.test(s0))
+            return 'str';
+        if (/^Boolean\s*\(/.test(s0))
+            return 'mbool';
+        if (/^JSON\.stringify\s*\(/.test(s0))
+            return 'str';
+        if (/^Array\.isArray\s*\(/.test(s0))
+            return 'mbool';
+        if (/^Math\.[A-Za-z_$][\w$]*\s*\(/.test(s0))
+            return 'num';
+        if (s0.includes('+')) {
+            const parts = splitTopLevel(s0, '+');
+            if (parts.length > 1) {
+                for (const p of parts) {
+                    const t = analyzeExprType(p, accessibleVars);
+                    if (t === 'str')
+                        return 'str';
+                }
+                if (/["'`]/.test(s0) || /\.toString\s*\(\s*\)/.test(s0))
+                    return 'str';
+            }
+        }
+        const callM = s0.match(/^([A-Za-z_$][\w$]*)\s*\(/);
+        if (callM) {
+            const fname = callM[1];
+            const fmeta = funcs.get(fname);
+            if (fmeta && fmeta.returnType)
+                return fmeta.returnType;
+            return null;
+        }
+        // Member calls: <recv>.<method>(...)
+        const membCall = s0.match(/^(.*)(?:\.|\?\.)\s*([A-Za-z_$][\w$]*)\s*\(/);
+        if (membCall) {
+            const recvExpr = membCall[1].trim();
+            const mname = membCall[2];
+            const recvType = inferTypeFromExpr(recvExpr, accessibleVars, interfaces) || analyzeExprType(recvExpr, accessibleVars);
+            if (recvType && classMethods.has(String(recvType))) {
+                const mt = classMethods.get(String(recvType));
+                const rt = mt.get(mname);
+                if (rt)
+                    return rt;
+            }
+        }
+        // Known instance methods
+        if (/\.toString\s*\(\s*\)\s*$/.test(s0))
+            return 'str';
+        if (/\.join\s*\(\s*\)/.test(s0))
+            return 'str';
+        if (/\.includes\s*\(\s*/.test(s0))
+            return 'mbool';
+        if (/^[A-Za-z_$][\w$]*$/.test(s0)) {
+            const v = accessibleVars.get(s0);
+            return v?.declaredType ?? null;
+        }
+        return null;
     }
     // Pre-scan func declarations in original source (capture param types incl custom and optional return type)
     const funcDeclRx = /\bfunc\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:::\s*([^{}\n]+))?\s*\{/g;
@@ -756,6 +1178,9 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
     let inFunction = false;
     // Return type enforcement state
     let pendingFunctionName = null;
+    // Class methods (multiline headers) pending info
+    let pendingMethodName = null;
+    let pendingMethodReturnType;
     const funcContextStack = [];
     // Soporte para cabeceras multilínea (cuando '{' va en la línea siguiente)
     let pendingOpenScope = null;
@@ -800,8 +1225,8 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
             const controlHeaderWithBrace = /^\s*(if|else|for|while|try|catch|finally|switch)\b[^\{]*\{/.test(L);
             const controlHeaderNoBrace = /^\s*(if|else|for|while|try|catch|finally|switch)\b.*$/.test(L) && /\($/.test(L.trim());
             // Detect class method-like headers (supports async/static/get/set), even if class scope wasn't recognized
-            const classMethodWithBrace = /^\s*(?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?(?:constructor|[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/.test(L);
-            const classMethodNoBrace = /^\s*(?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?(?:constructor|[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*$/.test(L);
+            const classMethodWithBrace = /^\s*(?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?(?:constructor|[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*[^\{\n]+)?\s*\{/.test(L);
+            const classMethodNoBrace = /^\s*(?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?(?:constructor|[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*[^\{\n]+)?\s*$/.test(L);
             // Apertura inmediata si la llave está en la misma línea
             if (funcHeaderWithBrace || classMethodWithBrace) {
                 scopeManager.enterScope('function');
@@ -813,6 +1238,23 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                     const fname = m ? m[1] : "";
                     const fmeta = fname ? funcs.get(fname) : undefined;
                     funcContextStack.push({ name: fname, expected: fmeta?.returnType, hasValueReturn: false, sawReturnAttempt: false, startLine: lineNo, headerLine: fmeta?.declaredLine, headerCol: fmeta?.returnTypeCol });
+                }
+                else if (classMethodWithBrace) {
+                    // Extract method name and optional ::ReturnType
+                    const mm = L.match(/^\s*(?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*([^\{\n]+))?\s*\{/);
+                    const mname = mm ? mm[1] : "";
+                    let mret = mm && mm[2] ? mm[2].trim() : undefined;
+                    if (mname === 'constructor')
+                        mret = undefined; // constructors are effectively void
+                    if (mret) {
+                        try {
+                            validateTypeRef(mret, lineNo, L.indexOf('::') + 3);
+                        }
+                        catch (e) {
+                            throw e;
+                        }
+                    }
+                    funcContextStack.push({ name: mname, expected: mret, hasValueReturn: false, startLine: lineNo });
                 }
             }
             else if (classHeaderWithBrace) {
@@ -826,10 +1268,23 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
             // Marcar apertura pendiente si no hay llave en esta línea
             if (funcHeaderNoBrace || classMethodNoBrace)
                 pendingOpenScope = 'function';
-            // capture pending function name for later open
+            // capture pending function/method name for later open
             if (funcHeaderNoBrace) {
                 const m = L.match(/^\s*(?:async\s+)?(?:func|function)\s+([A-Za-z_$][\w$]*)/);
                 pendingFunctionName = m ? m[1] : null;
+                pendingMethodName = null; // clear method pending
+                pendingMethodReturnType = undefined;
+            }
+            else if (classMethodNoBrace) {
+                const mm = L.match(/^\s*(?:async\s+)?(?:static\s+)?(?:(?:get|set)\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?:::\s*([^\{\n]+))?\s*$/);
+                pendingMethodName = mm ? mm[1] : null;
+                pendingMethodReturnType = mm && mm[2] ? mm[2].trim() : undefined;
+                if (pendingMethodName === 'constructor')
+                    pendingMethodReturnType = undefined;
+                if (pendingMethodReturnType) {
+                    validateTypeRef(pendingMethodReturnType, lineNo, L.indexOf('::') + 3);
+                }
+                pendingFunctionName = null; // make sure we treat it as method
             }
             else if (classHeaderNoBrace)
                 pendingOpenScope = 'class';
@@ -842,10 +1297,17 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                 if (pendingOpenScope === 'function')
                     inFunction = true;
                 if (pendingOpenScope === 'function') {
-                    const fname = pendingFunctionName || "";
-                    const fmeta = fname ? funcs.get(fname) : undefined;
-                    funcContextStack.push({ name: fname, expected: fmeta?.returnType, hasValueReturn: false, startLine: lineNo, headerLine: fmeta?.declaredLine, headerCol: fmeta?.returnTypeCol });
+                    if (pendingMethodName) {
+                        funcContextStack.push({ name: pendingMethodName, expected: pendingMethodReturnType, hasValueReturn: false, startLine: lineNo });
+                    }
+                    else {
+                        const fname = pendingFunctionName || "";
+                        const fmeta = fname ? funcs.get(fname) : undefined;
+                        funcContextStack.push({ name: fname, expected: fmeta?.returnType, hasValueReturn: false, startLine: lineNo, headerLine: fmeta?.declaredLine, headerCol: fmeta?.returnTypeCol });
+                    }
                     pendingFunctionName = null;
+                    pendingMethodName = null;
+                    pendingMethodReturnType = undefined;
                 }
                 pendingOpenScope = null;
             }
@@ -880,8 +1342,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                 emit(L, lineNo);
                 continue;
             }
-            // Transform maybe to (Math.random() < 0.5) in output
-            L = L.replace(/\bmaybe\b/g, "(Math.random() < 0.5)");
+            // Do NOT transform 'maybe' here; keep original text for type inference.
             // Ensure function declarations are valid JS in emitted code
             // Support both `func Name(` and `async func Name(` and optional ::ReturnType
             L = L.replace(/\basync\s+func\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*::\s*([^\{]+)\{/g, "async function $1($2){");
@@ -974,18 +1435,18 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                                 const vname = dm[3];
                                 const vtypeRaw = (dm[4] || '').trim();
                                 let vtype = null;
-                                if (vtypeRaw) {
+                                if (vtypeRaw)
                                     vtype = vtypeRaw.endsWith('[]') ? 'arr' : vtypeRaw;
-                                }
                                 accessibleVars.set(vname, {
                                     name: vname,
                                     declaredKind: dm[2],
                                     declaredType: vtype,
-                                    mutable: dm[2] === 'let',
+                                    mutable: (dm[2] === 'let'),
                                     declaredLine: lineNo
                                 });
                             }
-                        } catch {}
+                        }
+                        catch { }
                         const inferred = inferTypeFromExpr(exprText, accessibleVars, interfaces);
                         if (interfaces.has(expected) && exprText.trim().startsWith("{")) {
                             const iface = interfaces.get(expected);
@@ -1100,7 +1561,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                         }
                     }
                     else {
-                        rhsType = inferTypeFromExpr(expr, accessibleVars, interfaces) ?? (accessibleVars.get(expr)?.declaredType ?? null);
+                        rhsType = analyzeExprType(expr, accessibleVars) ?? (accessibleVars.get(expr)?.declaredType ?? null);
                     }
                     // CORRECCIÓN IMPORTANTE: Si rhsType es null (como en llamadas a funciones), confiar en el tipo declarado
                     if (rhsType === null) {
@@ -1122,7 +1583,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                             }
                         }
                         else if (declaredArrayType.innerType && !rhsArrayType.innerType) {
-                            // arr<T> = arr (mixed) - verificar si los elementos son compatibles
+                            // arr<T> = arr (unknown inner)
                             if (expr.trim().startsWith("[")) {
                                 const elementTypes = inferArrayElementTypes(expr, accessibleVars, interfaces);
                                 let hasIncompatibleElement = false;
@@ -1142,7 +1603,8 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                                 }
                             }
                             else {
-                                throw new CompileError(filePath, lineNo, L.indexOf(name) + 1, `Type error: cannot assign mixed array to typed array arr<${declaredArrayType.innerType}> '${name}'`);
+                                // Non-literal array with unknown inner type: accept (runtime value)
+                                // No static element check possible
                             }
                         }
                         // arr = arr<T> o arr = arr están permitidos
@@ -1247,7 +1709,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                         }
                     }
                     else {
-                        inferredType = inferTypeFromExpr(expr, accessibleVars, interfaces);
+                        inferredType = analyzeExprType(expr, accessibleVars);
                     }
                     // CORRECCIÓN: Si no podemos inferir el tipo, usar null (será any en JS)
                     if (inferredType === null) {
@@ -1443,7 +1905,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                         }
                     }
                     else {
-                        inferred = inferTypeFromExpr(expr, accessibleVars, interfaces);
+                        inferred = analyzeExprType(expr, accessibleVars);
                     }
                     scopeManager.addVariable(name, {
                         name,
@@ -1478,7 +1940,7 @@ export function transpileSpark(sourceCode, filePath = "<input>.sp") {
                     }
                 }
                 else {
-                    rhsType = inferTypeFromExpr(expr, accessibleVars, interfaces) ?? (accessibleVars.get(expr)?.declaredType ?? null);
+                    rhsType = analyzeExprType(expr, accessibleVars) ?? (accessibleVars.get(expr)?.declaredType ?? null);
                 }
                 // CORRECCIÓN: Si rhsType es null, confiar en el tipo declarado existente
                 if (rhsType === null) {
