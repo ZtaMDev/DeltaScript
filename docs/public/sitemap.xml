@@ -8,44 +8,44 @@
 
 
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
+  <loc>https://ztamdev.github.io/DeltaScript/</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
   <priority>1.00</priority>
 </url>
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/getting-started.html</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
+  <loc>https://ztamdev.github.io/DeltaScript/getting-started.html</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
   <priority>0.80</priority>
 </url>
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/configuration.html</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
+  <loc>https://ztamdev.github.io/DeltaScript/language.html</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
   <priority>0.80</priority>
 </url>
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/overview.html</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
+  <loc>https://ztamdev.github.io/DeltaScript/cli.html</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
   <priority>0.80</priority>
 </url>
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/node.html</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
+  <loc>https://ztamdev.github.io/DeltaScript/config.html</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
   <priority>0.80</priority>
 </url>
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/web.html</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
+  <loc>https://ztamdev.github.io/DeltaScript/examples.html</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
   <priority>0.80</priority>
 </url>
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/plugins.html</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
-  <priority>0.80</priority>
+  <loc>https://ztamdev.github.io/DeltaScript/types.html</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
+  <priority>0.64</priority>
 </url>
 <url>
-  <loc>https://ztamdev.github.io/SpectralLogs/api.html</loc>
-  <lastmod>2025-10-08T03:39:01+00:00</lastmod>
-  <priority>0.80</priority>
+  <loc>https://ztamdev.github.io/DeltaScript/spectrallogs.html</loc>
+  <lastmod>2025-11-03T01:25:39+00:00</lastmod>
+  <priority>0.64</priority>
 </url>
 
 
