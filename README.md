@@ -111,7 +111,7 @@ When running a single file, `dsc` compiles to a temporary `.mjs` and executes it
 ### Flags
 
 - `--no-builtins`
-  - Disables SpectralLogs integration and the console.* tip.
+  - Disables SpectralLogs integration.
 
 ## Configuration (dsk.config.ds)
 
