@@ -5,7 +5,7 @@ DeltaScript uses a simple JSON‑like config file named `dsk.config.ds` at the p
 ## Example
 
 ```ts
-{
+export default {
   module: 'cjs',
   outDir: 'dist',
   entry: 'src',

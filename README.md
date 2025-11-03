@@ -1,5 +1,5 @@
 <h1 align="center">DeltaScript</h1>
-
+ 
 <p align="center">
   <img src="./logo.png" alt="DeltaScript Logo" width="160" />
 </p>
@@ -30,7 +30,7 @@
   <a href="https://ztamdev.github.io/DeltaScript/"><strong>Read the full documentation →</strong></a>
 </p>
 
-## Overview(This project is not a serious project is just an experiment that IDK why I just work on it so much XD)
+## Overview
 
 DeltaScript is a small language that compiles to JavaScript. It focuses on:
 - Clear and readable syntax.
@@ -111,18 +111,14 @@ When running a single file, `dsc` compiles to a temporary `.mjs` and executes it
 ### Flags
 
 - `--no-builtins`
-  - Disables SpectralLogs integration and the console.* tip.
-- `--migrate-to-spec`
-  - Rewrites `console.*` to `spec.*` in emitted JS for you.
-- `--spectral-cdn`
-  - Forces CDN imports for SpectralLogs instead of package imports/shim.
+  - Disables SpectralLogs integration.
 
 ## Configuration (dsk.config.ds)
 
 The configuration file is a JSON‑like object. Example:
 
 ```ts
-{
+export default {
   module: 'cjs',
   outDir: 'dist',
   entry: 'src',

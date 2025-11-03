@@ -32,13 +32,8 @@ Transpiles a single file to a temporary `.mjs` and executes it with Node.
 ## Flags
 
 - `--no-builtins`
-  - Disables SpectralLogs integration and the console warning/tips.
+  - Disables SpectralLogs integration.
 
-- `--migrate-to-spec`
-  - Rewrites `console.*` to `spec.*` in emitted JS.
-
-- `--spectral-cdn`
-  - Uses CDN imports for SpectralLogs instead of package imports/shim.
 
 ## Output and Errors
 
