@@ -112,10 +112,6 @@ When running a single file, `dsc` compiles to a temporary `.mjs` and executes it
 
 - `--no-builtins`
   - Disables SpectralLogs integration and the console.* tip.
-- `--migrate-to-spec`
-  - Rewrites `console.*` to `spec.*` in emitted JS for you.
-- `--spectral-cdn`
-  - Forces CDN imports for SpectralLogs instead of package imports/shim.
 
 ## Configuration (dsk.config.ds)
 
